@@ -55,3 +55,25 @@ node test/simulate.mjs        # simulates a real launch with and without a dev b
 | `LAUNCHPAD_PAUSED=1` | refuses new launches |
 | `GITHUB_TOKEN` | optional; lifts GitHub's 60 username lookups an hour |
 | `TRUST_PROXY=1` | behind a reverse proxy: per-visitor limits use the address it appends to `X-Forwarded-For` |
+
+## Telegram bot
+
+`bot.mjs` is the Gem Search bot: the same scan and Web X-ray as the site, in a chat. Long polling with plain `fetch`,
+no extra dependencies; the update offset and watch list live in `/data` (`bot-state.json`, `bot-watches.json`).
+
+| Command | |
+| --- | --- |
+| `/scan <CA>` (or just send a CA in a private chat) | score, tags, market, every check |
+| `/xray <CA>` | launch block, launch buyers, linked-wallet clusters, verdict |
+| `/watch <CA>` · `/unwatch <CA>` · `/watches` | up to 5 coins per chat, re-scanned every 10 minutes; alerts on score −10, a new failed check, dev ±2 points, liquidity −30%, graduation, paid Dex profile, top 10 +10 points |
+| `/launch` · `/token` · `/help` | links |
+
+Limits per user: 8 scans and 3 X-rays a minute; scans are cached for 60 s and X-rays for 5 minutes.
+
+```sh
+TELEGRAM_BOT_TOKEN=… SOLANA_RPC_URL=… BOT_DATA_DIR=./data node bot.mjs
+docker run -d --name gem-bot --restart unless-stopped --env-file .env -v "$PWD/data:/data" gem-launchpad:latest node bot.mjs
+```
+
+In groups the bot answers commands, mentions and replies to it; to read plain CA messages there, turn privacy mode off
+in @BotFather (`/setprivacy` → Disable).
