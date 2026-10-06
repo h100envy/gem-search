@@ -34,7 +34,7 @@ def run_responsiveness_check(application, window, store, output):
         state['max_gap_ms'] = max(state['max_gap_ms'], (now - state['last']) * 1000)
         state['last'] = now
         state['heartbeats'] += 1
-        if window.tables['Live tokens'].rowCount() == 2000:
+        if window.total_counts.get('Live tokens') == 2000:
             state['loaded'] = True
         if state['loaded'] and not state['lock_started']:
             state['lock_started'] = True
@@ -45,9 +45,13 @@ def run_responsiveness_check(application, window, store, output):
             window.search.setText('Fixture token 1999')
             state['search_works'] = window.tables['Live tokens'].rowCount() == 1
             window.search.clear()
+            state['fitted_rows'] = 0 < window.tables['Live tokens'].rowCount() < 2000
+            window.turn_page('Live tokens', 1)
+            state['pagination_works'] = window.pages['Live tokens'] == 1
+            window.turn_page('Live tokens', -1)
             table = window.tables['Live tokens']
-            table.selectRow(1999)
-            expected_address = table.model().records[1999]['address']
+            table.selectRow(0)
+            expected_address = table.model().records[0]['address']
             window.copy_address(table)
             state['copy_works'] = application.clipboard().text() == expected_address and len(expected_address) == 42
         if now - state['started'] < 8:
@@ -55,7 +59,7 @@ def run_responsiveness_check(application, window, store, output):
         timer.stop()
         state['database_lock_released'] = released.is_set()
         state['queued_write_saved'] = store.get('responsiveness_probe') is True
-        state['passed'] = all(state.get(key) for key in ['loaded', 'search_works', 'copy_works', 'database_lock_released', 'queued_write_saved']) and state['max_gap_ms'] < 500 and state['heartbeats'] > 100
+        state['passed'] = all(state.get(key) for key in ['loaded', 'search_works', 'copy_works', 'database_lock_released', 'queued_write_saved', 'fitted_rows', 'pagination_works']) and state['max_gap_ms'] < 500 and state['heartbeats'] > 100
         result = Path(output)
         result.parent.mkdir(parents=True, exist_ok=True)
         result.write_text(json.dumps(state, indent=2), encoding='utf-8')
