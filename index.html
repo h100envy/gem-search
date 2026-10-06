@@ -10,6 +10,7 @@
 <meta property="og:image" content="og.jpg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@gemsearchfun">
 <meta name="twitter:image" content="og.jpg">
 <link rel="icon" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -42,6 +43,8 @@ nav .links a:hover{color:var(--text)}
 .btn.primary{background:var(--rainbow);color:#0a0820}
 .btn.ghost{border-color:rgba(255,255,255,.22);color:var(--text);background:rgba(255,255,255,.04)}
 nav .btn{padding:8px 16px}
+nav .xbtn{padding:8px 11px}
+@media (max-width:520px){nav .gh{display:none}nav .links{gap:10px}}
 @media (max-width:720px){nav .links a:not(.btn){display:none}}
 
 /* hero */
@@ -115,7 +118,8 @@ footer .disc{letter-spacing:.14em;font-size:12px}
   <div class="links">
     <a href="#how">How it works</a>
     <a href="#start">Quick start</a>
-    <a class="btn ghost" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a>
+    <a class="btn ghost xbtn" href="https://x.com/gemsearchfun" target="_blank" rel="noopener" aria-label="Gem Search on X"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2Zm-1.1 18.1h1.7L6.3 3.8H4.5l13.3 16.3Z"/></svg></a>
+    <a class="btn ghost gh" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a>
     <a class="btn primary" href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Buy</a>
   </div>
 </div></nav>
@@ -215,7 +219,7 @@ footer .disc{letter-spacing:.14em;font-size:12px}
 </section>
 
 <footer><div class="wrap">
-  <div>gem<span class="rb">search</span> · open source · MIT · <a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a></div>
+  <div>gem<span class="rb">search</span> · open source · MIT · <a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a> · <a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">@gemsearchfun</a></div>
   <div class="disc mono">A RESEARCH COMPANION — NOT A PROMISE OF RETURNS</div>
 </div></footer>
 <div class="toast" id="toast">Copied</div>
