@@ -16,11 +16,13 @@ from token_monitor import TokenMonitor
 
 def icon():
     pixmap = QPixmap(64, 64)
-    pixmap.fill(QColor('#14231b'))
+    pixmap.fill(QColor('#101114'))
     painter = QPainter(pixmap)
-    painter.setPen(QColor('#c6eb94'))
-    painter.setBrush(QColor('#c6eb94'))
-    painter.drawEllipse(18, 18, 28, 28)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    for color, x, y in [('#4285F4', 14, 14), ('#EA4335', 34, 14), ('#FBBC05', 14, 34), ('#34A853', 34, 34)]:
+        painter.setPen(QColor(color))
+        painter.setBrush(QColor(color))
+        painter.drawEllipse(x, y, 16, 16)
     painter.end()
     return QIcon(pixmap)
 
@@ -47,27 +49,56 @@ class DesktopWindow(QMainWindow):
         self.tables = {}
         self.setWindowTitle('Gem Search · Token Monitor')
         self.setWindowIcon(icon())
-        self.resize(1240, 800)
+        self.resize(1320, 850)
         container = QWidget()
         self.setCentralWidget(container)
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(28, 24, 28, 24)
-        title = QLabel('TOKEN MONITOR')
+        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setSpacing(18)
+        header = QHBoxLayout()
+        title = QLabel('<span style="color:#4285F4">G</span><span style="color:#EA4335">e</span><span style="color:#FBBC05">m</span> <span style="color:#34A853">Search</span>')
         title.setObjectName('title')
-        layout.addWidget(title)
-        layout.addWidget(QLabel('Discover tokens. Follow the evidence. Keep every alert.'))
+        header.addWidget(title)
+        header.addStretch()
+        tagline = QLabel('YOUR TOKEN RADAR')
+        tagline.setObjectName('muted')
+        header.addWidget(tagline)
+        layout.addLayout(header)
+        summary = QHBoxLayout()
+        summary.setSpacing(16)
+        self.metrics = {}
+        for label, key, color in [('DISCOVERED TOKENS', 'tokens', '#4285F4'), ('SAVED ALERTS', 'alerts', '#EA4335'), ('WATCHED TOKENS', 'watched', '#FBBC05'), ('FLOW SAMPLES', 'samples', '#34A853')]:
+            card = QWidget()
+            card.setObjectName('card')
+            card.setStyleSheet('QWidget#card{border-top:3px solid ' + color + ';}')
+            card_box = QVBoxLayout(card)
+            card_box.setContentsMargins(20, 16, 20, 16)
+            label_widget = QLabel(label)
+            label_widget.setObjectName('muted')
+            value = QLabel('0')
+            value.setObjectName('metric')
+            card_box.addWidget(label_widget)
+            card_box.addWidget(value)
+            self.metrics[key] = value
+            summary.addWidget(card)
+        layout.addLayout(summary)
         controls = QHBoxLayout()
         self.duration = QComboBox()
         for label, minutes in [('Until I stop', 0), ('15 minutes', 15), ('1 hour', 60), ('2 hours', 120)]:
             self.duration.addItem(label, minutes)
+        controls.addWidget(QLabel('Monitor for'))
         controls.addWidget(self.duration)
-        for label, callback in [('Start monitoring', self.start_monitor), ('Stop', self.stop_monitor), ('Test desktop notification', self.test_notification)]:
+        controls.addStretch()
+        self.control_buttons = {}
+        for label, callback, style in [('Start monitoring', self.start_monitor, 'primary'), ('Stop', self.stop_monitor, 'stop')]:
             button = QPushButton(label)
+            button.setObjectName(style)
+            self.control_buttons[style] = button
             button.clicked.connect(callback)
             controls.addWidget(button)
-        controls.addStretch()
         layout.addLayout(controls)
         self.status_label = QLabel()
+        self.status_label.setObjectName('status')
         layout.addWidget(self.status_label)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
@@ -77,6 +108,8 @@ class DesktopWindow(QMainWindow):
         for name, headings in [('Live tokens', ['Token', 'Chain', 'Address', 'Market cap', 'Net inflow · 5m', 'Flow sampled', 'First detected']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token', 'Chain', 'Address', 'Market cap', 'Net inflow · 5m', 'Flow sampled', 'First detected'])]:
             page = QWidget()
             box = QVBoxLayout(page)
+            box.setContentsMargins(20, 20, 20, 20)
+            box.setSpacing(16)
             if name == 'Live tokens':
                 box.addWidget(self.search)
             table = QTableWidget(0, len(headings))
@@ -86,6 +119,9 @@ class DesktopWindow(QMainWindow):
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
             table.horizontalHeader().setStretchLastSection(True)
+            table.verticalHeader().setDefaultSectionSize(62)
+            table.setShowGrid(False)
+            table.setWordWrap(False)
             table.verticalHeader().hide()
             table.setAlternatingRowColors(True)
             table.cellDoubleClicked.connect(lambda row, column, target=table: self.inspect(target, row))
@@ -98,6 +134,9 @@ class DesktopWindow(QMainWindow):
                 watch.clicked.connect(lambda checked=False, target=table, add=name == 'Live tokens': self.watch_selected(target, add))
                 actions.addWidget(copy)
                 actions.addWidget(watch)
+                market = QPushButton('Open chart')
+                market.clicked.connect(lambda checked=False, target=table: self.open_market(target))
+                actions.addWidget(market)
                 actions.addStretch()
                 box.addLayout(actions)
             self.tables[name] = table
@@ -109,6 +148,9 @@ class DesktopWindow(QMainWindow):
         self.notifications.setChecked(store.get('notifications', True))
         self.notifications.toggled.connect(lambda value: store.set('notifications', value))
         settings.addWidget(self.notifications)
+        test = QPushButton('Test desktop notification')
+        test.clicked.connect(self.test_notification)
+        settings.addWidget(test)
         settings.addWidget(QLabel('ADD A WATCHED TOKEN'))
         self.chain_input = QLineEdit()
         self.chain_input.setPlaceholderText('GeckoTerminal network ID: solana, eth, base, bsc…')
@@ -193,8 +235,14 @@ class DesktopWindow(QMainWindow):
         self.status_label.setText(('MONITORING' if state['enabled'] else 'STOPPED') + ' · ' + str(state['checked']) + ' flow samples checked · ' + str(state['skipped']) + ' incomplete samples skipped' + (' · ' + state['error'] if state['error'] else ''))
         self.persist_session()
         tokens = self.store.tokens()
+        self.metrics['tokens'].setText(str(len(tokens)))
+        self.metrics['alerts'].setText(str(len(self.alerts.recent())))
+        self.metrics['watched'].setText(str(len(self.store.watchlist())))
+        self.metrics['samples'].setText(str(state['checked']))
+        self.control_buttons['primary'].setEnabled(not state['enabled'])
+        self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
-        values = lambda r: [r['name'], r['chain'], r['address'], (money(r.get('market_cap_usd')) + '\n' + r.get('market_cap_source', 'Saved sample') + ' · ' + stamp(r.get('market_cap_updated_at'))) if r.get('market_cap_usd') is not None else 'Not reported by providers', money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at')), stamp(r.get('first_seen'))]
+        values = lambda r: [r['name'], r['chain'].upper(), r['address'][:7] + '...' + r['address'][-5:] if len(r['address']) > 16 else r['address'], (money(r.get('market_cap_usd')) + '\n' + r.get('market_cap_source', 'Saved sample') + ' · ' + stamp(r.get('market_cap_updated_at'))) if r.get('market_cap_usd') is not None else 'Awaiting provider data', money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at')), stamp(r.get('first_seen'))]
         self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
         watched = set(self.store.watchlist())
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
@@ -217,6 +265,11 @@ class DesktopWindow(QMainWindow):
         record = self.selected(table)
         if record:
             QApplication.clipboard().setText(record['address'])
+
+    def open_market(self, table):
+        record = self.selected(table)
+        if record:
+            QDesktopServices.openUrl(QUrl('https://www.geckoterminal.com/' + quote(record['chain'], safe='') + '/tokens/' + quote(record['address'], safe='')))
 
     def watch_selected(self, table, add):
         record = self.selected(table)
@@ -241,7 +294,7 @@ class DesktopWindow(QMainWindow):
         if not item:
             return
         record = item.data(Qt.ItemDataRole.UserRole)
-        QMessageBox.information(self, 'Token evidence', json.dumps(record, indent=2))
+        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Market cap: ' + money(record.get('market_cap_usd')), 'Market cap provider: ' + record.get('market_cap_source', 'Not sampled'), 'Market cap sampled: ' + stamp(record.get('market_cap_updated_at')), 'Net inflow over five minutes: ' + money(record.get('net_inflow_m5_usd')), 'Flow sampled: ' + stamp(record.get('flow_updated_at'))]))
 
     def show_alert_history(self):
         self.tabs.setCurrentIndex(1)
@@ -277,7 +330,36 @@ def main():
     application.setQuitOnLastWindowClosed(False)
     application.setApplicationName('Gem Search')
     application.setStyle('Fusion')
-    application.setStyleSheet('QWidget{background:#101a15;color:#e6efe6;font-size:13px}QLabel#title{font-size:30px;font-weight:700;color:#c6eb94}QPushButton{background:#284333;border:1px solid #496652;padding:10px;border-radius:6px}QPushButton:hover{background:#355b44}QLineEdit,QComboBox{background:#1a2a20;border:1px solid #415647;padding:10px}QTabBar::tab{padding:14px 24px;background:#17261c}QTabBar::tab:selected{background:#35533d;color:#d0efab}QTableWidget{background:#15241b;alternate-background-color:#1b2c20;gridline-color:#2a4030;selection-background-color:#365940}QHeaderView::section{background:#233b2a;color:#c8e0bc;padding:10px;border:none}QCheckBox{spacing:10px}QMessageBox{background:#14221a}')
+    application.setStyleSheet('''
+        QWidget{background:#101114;color:#e8eaed;font-family:"Segoe UI";font-size:13px}
+        QLabel#title{font-size:34px;font-weight:700;background:transparent}
+        QLabel#muted{color:#9aa0a6;font-size:11px;font-weight:600;background:transparent}
+        QLabel#metric{font-size:30px;font-weight:600;background:transparent}
+        QWidget#card{background:#1b1d22;border:1px solid #2c3038;border-radius:12px}
+        QLabel#status{color:#b8c4d9;padding:12px;background:#191e28;border-radius:8px}
+        QPushButton{background:#23262d;border:1px solid #3b404a;padding:10px 18px;border-radius:8px;font-weight:600}
+        QPushButton:hover{background:#303540;border-color:#4285F4}
+        QPushButton#primary{background:#4285F4;color:#fff;border:none}
+        QPushButton#primary:hover{background:#5a95f5}
+        QPushButton#stop{color:#ff8a80;border-color:#62322e}
+        QPushButton:disabled{background:#202229;color:#747b86;border-color:#30343b}
+        QLineEdit,QComboBox{background:#1b1d22;border:1px solid #383d47;padding:10px;border-radius:8px}
+        QLineEdit:focus{border-color:#4285F4}
+        QTabWidget::pane{border:1px solid #30343b;background:#15171b;border-radius:10px}
+        QTabBar::tab{padding:14px 24px;background:transparent;color:#9aa0a6;border-bottom:3px solid transparent;font-weight:600}
+        QTabBar::tab:selected{color:#8ab4f8;border-bottom-color:#4285F4}
+        QTableWidget{background:#17191e;alternate-background-color:#1c1f25;border:none;selection-background-color:#243859;selection-color:#fff}
+        QTableWidget::item{padding:8px;border-bottom:1px solid #292d35}
+        QHeaderView::section{background:#20232a;color:#9aa0a6;padding:12px;border:none;font-weight:600}
+        QCheckBox{spacing:10px;padding:6px}
+        QScrollBar:vertical{background:#17191e;width:10px;margin:0}
+        QScrollBar::handle:vertical{background:#434a56;min-height:30px;border-radius:5px}
+        QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0}
+        QMenu{background:#20232a;border:1px solid #383d47;padding:6px}
+        QMenu::item{padding:8px 20px}
+        QMenu::item:selected{background:#243859}
+        QMessageBox{background:#17191e}
+    ''')
     directory = Path(args.data_dir) if args.data_dir else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'GemSearch'
     store = DesktopStore(directory)
     lock = QLockFile(str(directory / 'desktop.lock'))
