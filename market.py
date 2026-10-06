@@ -48,6 +48,13 @@ class MarketRadar:
             self.expires = time.time() + minutes * 60 if enabled and minutes else None
         return self.status()
 
+    def unwatch(self, address):
+        if not isinstance(address, str):
+            raise ValueError('Token address is required')
+        with self.connect() as con:
+            con.execute('DELETE FROM market_watch WHERE address=?', (address,))
+        return self.status()
+
     def status(self):
         with self.lock:
             if self.expires and time.time() >= self.expires:

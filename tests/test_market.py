@@ -34,6 +34,8 @@ class MarketTests(unittest.TestCase):
         other = MarketRadar(app.connect)
         self.assertEqual(other.status()['watchlist'], [self.address])
         self.assertFalse(other.status()['enabled'])
+        other.unwatch(self.address)
+        self.assertEqual(other.status()['watchlist'], [])
 
     def test_deadline_and_manual_stop(self):
         with patch('market.time.time', return_value=100):

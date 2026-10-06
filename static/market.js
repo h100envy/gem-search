@@ -21,13 +21,22 @@ async function refreshMarket() {
     }
     document.getElementById('market-status').textContent = (data.enabled ? 'Running' : 'Stopped') + ' · ' + data.watchlist.length + ' tokens' + (data.error ? ' · ' + data.error : '');
     const latest = new Map();
-    for (const item of data.snapshots) if (!latest.has(item.address)) latest.set(item.address, item);
+    for (const item of data.snapshots) {
+      const previous = latest.get(item.address);
+      if (!previous || previous.captured_at === item.captured_at && (item.pair.liquidity?.usd || 0) > (previous.pair.liquidity?.usd || 0)) latest.set(item.address, item);
+    }
     const results = document.getElementById('market-results');
     results.replaceChildren();
-    for (const item of latest.values()) {
-      const p = item.pair;
+    for (const address of data.watchlist) {
+      const item = latest.get(address);
+      const p = item?.pair;
       const row = document.createElement('p');
-      row.textContent = (p.baseToken?.name || item.address) + ' · Price $' + (p.priceUsd ?? 'unavailable') + ' · Liquidity $' + (p.liquidity?.usd ?? 'unavailable') + ' · 24h volume $' + (p.volume?.h24 ?? 'unavailable') + ' · ' + new Date(item.captured_at * 1000).toLocaleString();
+      row.textContent = p ? (p.baseToken?.name || address) + ' · Price $' + (p.priceUsd ?? 'unavailable') + ' · Liquidity $' + (p.liquidity?.usd ?? 'unavailable') + ' · 24h volume $' + (p.volume?.h24 ?? 'unavailable') + ' · ' + new Date(item.captured_at * 1000).toLocaleString() : address + ' · No market snapshot available yet';
+      const remove = document.createElement('button');
+      remove.textContent = 'Remove';
+      remove.className = 'secondary';
+      remove.addEventListener('click', async () => { try { await api('market/unwatch', {address}); await refreshMarket(); } catch (error) { notice(error.message); } });
+      row.append(remove);
       results.append(row);
     }
   } catch (error) { document.getElementById('market-status').textContent = error.message; }

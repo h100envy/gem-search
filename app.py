@@ -682,6 +682,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/api/market/watch':
                 MARKET.watch(data.get('address'))
                 return self.send(200, MARKET.status())
+            if self.path == '/api/market/unwatch':
+                return self.send(200, MARKET.unwatch(data.get('address')))
             if self.path == '/api/market/control':
                 return self.send(200, MARKET.control(data.get('enabled'), data.get('minutes', 0)))
             if self.path == '/api/market/pump':
