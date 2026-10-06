@@ -11,7 +11,7 @@
 
 <h1 align="center">🕷️ Meet the curious side of your feed.</h1>
 <p align="center"><b>Your next research rabbit hole has eight legs.</b><br>A browser companion that turns the posts you see into questions worth asking.</p>
-<p align="center"><a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
+<p align="center"><a href="#-launch-a-coin-from-gemsearchfun">Launchpad</a> · <a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
 
 <br>
 
@@ -24,6 +24,22 @@
 </table>
 
 <br>
+
+## 🚀 Launch a coin from gemsearch.fun
+
+The spider finds the narrative. Now you can launch on it without leaving the site: **[gemsearch.fun/launch](https://gemsearch.fun/launch)** creates a coin on pump.fun from the wallet in your browser.
+
+| | |
+| --- | --- |
+| **Everything pump.fun asks for** | Image, name, ticker, description, website, X and Telegram |
+| **Dev buy** | Your first buy in the same transaction, up to 5 SOL, before snipers get the cheapest part of the curve |
+| **Creator fees to a GitHub dev** | Send 1 to 100% of creator fees to any GitHub account, the rest stays yours. The split is pump.fun's own fee sharing, set inside the launch transaction; the developer claims in the pump.fun app by signing in with GitHub |
+| **Pay Dex** | After launch, one button opens the DexScreener profile order with your coin filled in. The page also shows whether any coin's Dex profile is paid |
+| **0% to Gem Search** | No platform fee, no cut of creator fees |
+
+**How it stays safe.** The coin's mint key is made in your browser and never leaves it. The launch server stores the image and metadata on IPFS, builds the pump.fun transaction with you as payer and owner, and sends it only if what your wallet signed is byte for byte what it built. It holds no key of yours and has no database. The server is open source in [`launchpad/`](https://github.com/h100envy/gem-search/tree/launchpad/launchpad) on the `launchpad` branch, with tests and a mainnet simulation that spends nothing.
+
+Coins follow pump.fun's rules and fees. Gem Search does not review, endorse or list what anyone launches.
 
 ## ✨ What's new: the spider catches it early
 
@@ -261,6 +277,7 @@ docs/                Architecture, privacy, preview and launch documentation
 scripts/             Icon generation, ZIP packaging, sample signals and terminal walkthrough
 automation.py        Optional durable launch queue
 launch/              Optional isolated-wallet Solana executor
+launchpad/           gemsearch.fun/launch server (launchpad branch): pump.fun launches signed by your wallet
 tests/               Offline tests and unsigned provider fixture
 ```
 
