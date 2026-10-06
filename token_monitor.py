@@ -157,11 +157,11 @@ class TokenMonitor:
                 if self.tracked:
                     tracked = sorted({(row['chain'], row['address']) for row in self.tracked()})
                     if tracked:
-                        for index in range(min(20, len(tracked))):
+                        for index in range(min(500, len(tracked))):
                             network, address = tracked[(self.quote_offset + index) % len(tracked)]
                             if address not in missing_caps.setdefault(network, []):
                                 missing_caps[network].append(address)
-                        self.quote_offset = (self.quote_offset + 20) % len(tracked)
+                        self.quote_offset = (self.quote_offset + 500) % len(tracked)
                 quotes = {}
                 self.valuation_error = None
                 for network, addresses in list(missing_caps.items())[:20]:
@@ -178,9 +178,13 @@ class TokenMonitor:
                         self.valuation_error = 'Quote refresh delayed; check sample ages'
                 if quotes and self.status()['enabled'] and generation == self.generation:
                     try:
-                        for address, supply in solana_supplies(list(quotes)).items():
-                            if self.status()['enabled'] and generation == self.generation:
-                                self.observer('solana', address, supply_valuation(supply, quotes[address]))
+                        addresses = list(quotes)
+                        for offset in range(0, len(addresses), 100):
+                            if not self.status()['enabled'] or generation != self.generation:
+                                break
+                            for address, supply in solana_supplies(addresses[offset:offset + 100]).items():
+                                if self.status()['enabled'] and generation == self.generation:
+                                    self.observer('solana', address, supply_valuation(supply, quotes[address]))
                     except (OSError, ValueError, TypeError):
                         self.valuation_error = 'Solana supply refresh unavailable; check sample ages'
             with self.alerts.connect() as con:

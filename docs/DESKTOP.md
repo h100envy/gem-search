@@ -20,7 +20,7 @@ Supply valuation (FD) is separate from reported market cap. The app calls Solana
 
 Double-click a token to inspect supply, decimals, chain slot, price provider, selected price pool, reported liquidity, valuation method and timestamps. The Solscan button opens the token's explorer page for comparison; the app does not call the authenticated Solscan Pro API.
 
-Watched tokens and discovery tokens refresh each poll. Other saved tokens refresh in rotating batches of 20. Samples older than three minutes display STALE. Old values are not treated as current quotes. Direct supply reads currently cover Solana; other networks keep their provider-reported market cap.
+Watched tokens and discovery tokens refresh each poll. Other saved tokens refresh in rotating batches of up to 500, using price requests of up to 30 tokens and supply requests of up to 100 mints. Samples older than three minutes display STALE. Old values are not treated as current quotes. Direct supply reads currently cover Solana; other networks keep their provider-reported market cap.
 
 Sources: https://solana.com/docs/rpc/http/getmultipleaccounts and https://docs.solscan.io/browsing-the-site/token-page.
 

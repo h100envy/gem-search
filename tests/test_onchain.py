@@ -1,6 +1,10 @@
 import unittest
+import tempfile
+from unittest.mock import patch
+from alerts import TokenAlerts
+from desktop_store import DesktopStore
 from onchain import parse_supplies, supply_valuation
-from token_monitor import select_market_caps
+from token_monitor import select_market_caps, TokenMonitor
 
 
 class OnchainTests(unittest.TestCase):
@@ -41,3 +45,19 @@ class OnchainTests(unittest.TestCase):
         self.assertEqual(result['price_usd'], '0.00004')
         self.assertIsNone(result['price_liquidity_usd'])
         self.assertNotIn('market_cap_usd', result)
+
+    def test_saved_quote_rotation_batches_prices_and_supply_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = DesktopStore(directory)
+            observed = []
+            tracked = [{'chain': 'solana', 'address': 'mint' + str(index).zfill(4)} for index in range(501)]
+            monitor = TokenMonitor(TokenAlerts(store.connect), lambda network, address, fields: observed.append((address, fields)), tracked=lambda: tracked)
+            monitor.control(True)
+            with patch('token_monitor.get_json', return_value={'data': []}), patch('token_monitor.dex_market_caps', side_effect=lambda network, addresses: {address: {'price_usd': '1', 'price_source': 'Fixture'} for address in addresses}) as price, patch('token_monitor.solana_supplies', side_effect=lambda addresses: {address: {'onchain_supply': '1000'} for address in addresses}) as supply:
+                monitor.poll()
+                monitor.last_poll = 0
+                monitor.poll()
+            self.assertTrue(all(len(call.args[1]) <= 30 for call in price.call_args_list))
+            self.assertTrue(all(len(call.args[0]) <= 100 for call in supply.call_args_list))
+            valued = {address for address, fields in observed if fields.get('onchain_valuation_usd') == 1000}
+            self.assertEqual(len(valued), 501)
