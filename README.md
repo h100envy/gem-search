@@ -6,11 +6,12 @@
   <img src="https://img.shields.io/badge/local-first-91e5c7?labelColor=191922" alt="Local first">
   <img src="https://img.shields.io/badge/Grok-4_perspectives-bca4ff?labelColor=191922" alt="Four optional Grok reviewers">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-f1cf8a?labelColor=191922" alt="MIT license"></a>
+  <a href="https://x.com/gemsearchfun"><img src="https://img.shields.io/badge/X-@gemsearchfun-f4f0ff?labelColor=191922&logo=x&logoColor=white" alt="Follow @gemsearchfun on X"></a>
 </p>
 
 <h1 align="center">🕷️ Meet the curious side of your feed.</h1>
 <p align="center"><b>Your next research rabbit hole has eight legs.</b><br>A browser companion that turns the posts you see into questions worth asking.</p>
-<p align="center"><a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a></p>
+<p align="center"><a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
 
 <br>
 
