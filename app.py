@@ -608,7 +608,8 @@ def market_loop():
 def alert_loop():
     while not STOP.wait(1):
         MONITOR.poll()
-        TELEGRAM.tick()
+        if os.getenv('ALERT_DESTINATION', 'desktop') == 'telegram':
+            TELEGRAM.tick()
 
 
 class Handler(BaseHTTPRequestHandler):
