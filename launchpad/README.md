@@ -42,3 +42,4 @@ node test/simulate.mjs        # simulates a real launch with and without a dev b
 | `ALLOWED_ORIGINS` | pages allowed to call the API (default `https://gemsearch.fun,https://www.gemsearch.fun`) |
 | `LAUNCH_TABLE` | optional address lookup table; keeps the priority fee on large launches with a dev buy |
 | `LAUNCHPAD_PAUSED=1` | refuses new launches |
+| `TRUST_PROXY=1` | behind a reverse proxy: per-visitor limits use the address it appends to `X-Forwarded-For` |

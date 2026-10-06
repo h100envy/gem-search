@@ -20,6 +20,7 @@ const LOG = env('LAUNCH_LOG', './data/launches.jsonl');
 const PER_IP_HOUR = Number(env('LAUNCHES_PER_IP_HOUR', 6));
 const PER_DAY = Number(env('LAUNCHES_PER_DAY', 150));
 const PAUSED = env('LAUNCHPAD_PAUSED', '') === '1';
+const TRUST_PROXY = env('TRUST_PROXY', '') === '1';
 const TABLE = env('LAUNCH_TABLE', ''); // optional address lookup table: keeps the priority fee on launches with a dev buy
 const BUILT_TTL = 150_000; // a blockhash lives ~60-90 s; a little longer covers a slow wallet prompt
 
@@ -153,8 +154,10 @@ const server = createServer(async (req, res) => {
     res.writeHead(code, headers);
     res.end(JSON.stringify(body));
   };
-  // Behind Caddy on the same host: the client address is the first hop it reports.
-  req.ip = (req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::1') && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : req.socket.remoteAddress;
+  // Behind a reverse proxy (TRUST_PROXY=1): the client is the last address the proxy appended, the one part of
+  // X-Forwarded-For a visitor cannot write themselves.
+  const xff = String(req.headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  req.ip = TRUST_PROXY && xff.length ? xff[xff.length - 1] : req.socket.remoteAddress;
   try {
     const url = new URL(req.url, 'http://x');
     if (req.method === 'OPTIONS') return send(204, {});
