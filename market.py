@@ -17,6 +17,8 @@ class MarketRadar:
         self.expires = None
         self.error = None
         self.last_poll = 0
+        self.generation = 0
+        self.pump_generation = 0
         self.pump_enabled = False
         self.pump_expires = None
         self.pump_error = None
@@ -41,6 +43,7 @@ class MarketRadar:
         if type(enabled) is not bool or type(minutes) is not int or not 0 <= minutes <= 1440:
             raise ValueError('Use a boolean enabled and duration from 0 to 1440 minutes')
         with self.lock:
+            self.generation += 1
             self.enabled = enabled
             self.expires = time.time() + minutes * 60 if enabled and minutes else None
         return self.status()
@@ -61,6 +64,7 @@ class MarketRadar:
         if type(enabled) is not bool or type(minutes) is not int or not 0 <= minutes <= 1440:
             raise ValueError('Use a boolean enabled and duration from 0 to 1440 minutes')
         with self.lock:
+            self.pump_generation += 1
             self.pump_enabled = enabled
             self.pump_expires = time.time() + minutes * 60 if enabled and minutes else None
             if not enabled and self.pump_process:
@@ -91,6 +95,7 @@ class MarketRadar:
                         continue
                     process = subprocess.Popen([node, script_path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
                     self.pump_process = process
+                    generation = self.pump_generation
                 lines = queue.Queue(maxsize=1000)
                 def read_lines():
                     for line in process.stdout:
@@ -101,9 +106,10 @@ class MarketRadar:
                 threading.Thread(target=read_lines, daemon=True).start()
                 while process.poll() is None and not stop.is_set():
                     with self.lock:
-                        active = self.pump_enabled and (not self.pump_expires or time.time() < self.pump_expires)
+                        active = self.pump_enabled and generation == self.pump_generation and (not self.pump_expires or time.time() < self.pump_expires)
                     if not active:
-                        self.pump_enabled = False
+                        if generation == self.pump_generation:
+                            self.pump_enabled = False
                         process.terminate()
                         break
                     try:
@@ -112,7 +118,7 @@ class MarketRadar:
                         continue
                     data = json.loads(line)
                     with self.lock:
-                        if not self.pump_enabled or self.pump_expires and time.time() >= self.pump_expires:
+                        if not self.pump_enabled or generation != self.pump_generation or self.pump_expires and time.time() >= self.pump_expires:
                             continue
                         if data.get('connected'):
                             self.pump_connected = True
@@ -137,6 +143,8 @@ class MarketRadar:
             stop.wait(5)
 
     def poll(self):
+        with self.lock:
+            generation = self.generation
         state = self.status()
         if not state['enabled'] or time.monotonic() - self.last_poll < 60:
             return
@@ -155,7 +163,7 @@ class MarketRadar:
                 raise ValueError('Invalid market response')
             captured = time.time()
             with self.lock:
-                if not self.enabled or self.expires and captured >= self.expires:
+                if not self.enabled or generation != self.generation or self.expires and captured >= self.expires:
                     return
                 with self.connect() as con:
                     for pair in pairs[:300]:

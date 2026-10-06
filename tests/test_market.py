@@ -73,3 +73,14 @@ class MarketTests(unittest.TestCase):
         self.assertTrue(state['pump']['enabled'])
         self.assertIsNotNone(state['pump']['expires_at'])
         self.assertFalse(self.radar.pump_control(False)['pump']['enabled'])
+
+    def test_restart_rejects_previous_session_response(self):
+        self.radar.watch(self.address)
+        self.radar.control(True)
+        def response(*args, **kwargs):
+            self.radar.control(False)
+            self.radar.control(True)
+            return io.BytesIO(json.dumps([{'chainId': 'solana', 'baseToken': {'address': self.address}}]).encode())
+        with patch('market.urlopen', side_effect=response):
+            self.radar.poll()
+        self.assertEqual(self.radar.status()['snapshots'], [])
