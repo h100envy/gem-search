@@ -25,3 +25,7 @@ python -m venv .venv-desktop
 The executable is produced at `dist/desktop/GemSearch-Desktop.exe`. The source distribution allows rebuilding the executable with replacement Qt/PySide libraries. See THIRD_PARTY_NOTICES.txt and the included license files.
 
 For an isolated UI smoke test, run the executable with `--data-dir PATH --smoke-test SCREENSHOT.png`. This uses labeled fixture data and writes a screenshot and test result JSON. Use an empty test directory.
+
+For a responsiveness check, run with `--data-dir EMPTY_TEST_DIRECTORY --responsiveness-test RESULT.json`. This uses 2,000 fixture tokens, locks the test database for two seconds, and checks interface heartbeats, search, full-address copying and a queued settings write. It writes JSON results and a screenshot without contacting market providers. Always use a separate test directory.
+
+Tables use a virtual model and only replace changed snapshots. Local reads and settings writes run on a background worker. Database lock waits occur before taking the monitor control lock, so Stop remains responsive and a canceled session cannot publish an alert that was waiting for storage. Quit saves queued settings before closing.

@@ -4,11 +4,12 @@ import os
 import sys
 import threading
 import time
+import queue
 from pathlib import Path
 from urllib.parse import quote
-from PySide6.QtCore import Qt, QTimer, QUrl, QLockFile
+from PySide6.QtCore import Qt, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
 from token_monitor import TokenMonitor
@@ -38,6 +39,55 @@ def stamp(value):
     return time.strftime('%H:%M:%S', time.localtime(value)) if value else 'Not sampled'
 
 
+class StoreSignals(QObject):
+    snapshot = Signal(object)
+    error = Signal(str)
+    finished = Signal()
+
+
+class TokenTableModel(QAbstractTableModel):
+    def __init__(self, headings, parent=None):
+        super().__init__(parent)
+        self.headings = headings
+        self.records = []
+        self.cells = []
+
+    def rowCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self.records)
+
+    def columnCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self.headings)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        if role == Qt.ItemDataRole.DisplayRole:
+            return self.cells[index.row()][index.column()]
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return self.records[index.row()]['address'] if index.column() == 2 else self.cells[index.row()][index.column()]
+        if role == Qt.ItemDataRole.UserRole:
+            return self.records[index.row()]
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            return self.headings[section]
+
+    def replace(self, records, values):
+        if self.records == records:
+            return False
+        cells = [[str(value) for value in values(record)] for record in records]
+        self.beginResetModel()
+        self.records = records
+        self.cells = cells
+        self.endResetModel()
+        return True
+
+
+class TokenTable(QTableView):
+    def rowCount(self):
+        return self.model().rowCount()
+
+
 class DesktopWindow(QMainWindow):
     def __init__(self, store, background=True):
         super().__init__()
@@ -45,6 +95,14 @@ class DesktopWindow(QMainWindow):
         self.alerts = TokenAlerts(store.connect)
         self.monitor = TokenMonitor(self.alerts, store.record, store.watchlist)
         self.stop = threading.Event()
+        self.background = background
+        self.pending_store = queue.Queue()
+        self.store_snapshot = {'tokens': [], 'alerts': [], 'watchlist': []}
+        self.saved_session = store.get('session', {})
+        self.store_signals = StoreSignals(self)
+        self.store_signals.snapshot.connect(self.accept_snapshot, Qt.ConnectionType.QueuedConnection)
+        self.store_signals.error.connect(lambda message: QMessageBox.information(self, 'Local data', message))
+        self.store_signals.finished.connect(QApplication.instance().quit, Qt.ConnectionType.QueuedConnection)
         self.quitting = False
         self.tables = {}
         self.setWindowTitle('Gem Search · Token Monitor')
@@ -112,19 +170,21 @@ class DesktopWindow(QMainWindow):
             box.setSpacing(16)
             if name == 'Live tokens':
                 box.addWidget(self.search)
-            table = QTableWidget(0, len(headings))
-            table.setHorizontalHeaderLabels(headings)
-            table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-            table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            table = TokenTable()
+            table.setModel(TokenTableModel(headings, table))
+            table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+            table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+            table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            for column, width in enumerate([210, 90, 130, 240, 160, 130, 140] if name != 'Triggered alerts' else [120, 90, 310, 260, 150]):
+                table.setColumnWidth(column, width)
             table.horizontalHeader().setStretchLastSection(True)
             table.verticalHeader().setDefaultSectionSize(62)
             table.setShowGrid(False)
             table.setWordWrap(False)
             table.verticalHeader().hide()
             table.setAlternatingRowColors(True)
-            table.cellDoubleClicked.connect(lambda row, column, target=table: self.inspect(target, row))
+            table.doubleClicked.connect(lambda index, target=table: self.inspect(target, index.row()))
             box.addWidget(table)
             if name != 'Triggered alerts':
                 actions = QHBoxLayout()
@@ -146,7 +206,7 @@ class DesktopWindow(QMainWindow):
         settings.addWidget(QLabel('ALERT RULES\nNet swap inflow: buys minus sells exceed $100,000 over five minutes.\nMarket cap: $40,000 before token age five minutes requires a token creation source.'))
         self.notifications = QCheckBox('Show notifications on this computer')
         self.notifications.setChecked(store.get('notifications', True))
-        self.notifications.toggled.connect(lambda value: store.set('notifications', value))
+        self.notifications.toggled.connect(lambda value: self.save_setting('notifications', value))
         settings.addWidget(self.notifications)
         test = QPushButton('Test desktop notification')
         test.clicked.connect(self.test_notification)
@@ -188,6 +248,7 @@ class DesktopWindow(QMainWindow):
         self.timer.start(2000)
         if background:
             threading.Thread(target=self.worker, daemon=True).start()
+            threading.Thread(target=self.snapshot_worker, daemon=True).start()
         self.refresh()
 
     def worker(self):
@@ -199,7 +260,37 @@ class DesktopWindow(QMainWindow):
 
     def persist_session(self):
         state = self.monitor.status()
-        self.store.set('session', {'enabled': state['enabled'], 'expires_at': state['expires_at']})
+        session = {'enabled': state['enabled'], 'expires_at': state['expires_at']}
+        if session != self.saved_session:
+            self.saved_session = session
+            self.save_setting('session', session)
+
+    def save_setting(self, key, value):
+        self.run_store(self.store.set, key, value)
+
+    def run_store(self, action, *args):
+        if self.background:
+            self.pending_store.put((action, args))
+        else:
+            action(*args)
+
+    def snapshot_worker(self):
+        while not self.stop.is_set():
+            try:
+                while not self.pending_store.empty():
+                    action, args = self.pending_store.get_nowait()
+                    action(*args)
+                    if self.stop.is_set():
+                        return
+                snapshot = {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
+                self.store_signals.snapshot.emit(snapshot)
+            except Exception as error:
+                self.store_signals.error.emit('Local data operation failed: ' + type(error).__name__)
+            self.stop.wait(1)
+
+    def accept_snapshot(self, snapshot):
+        self.store_snapshot = snapshot
+        self.refresh()
 
     def start_monitor(self):
         self.monitor.control(True, self.duration.currentData())
@@ -218,35 +309,34 @@ class DesktopWindow(QMainWindow):
         self.tray.showMessage('Gem Search test', 'This is a test notification, not a token alert.', QSystemTrayIcon.MessageIcon.Information, 10000)
 
     def fill_table(self, table, records, values):
-        selected = table.item(table.currentRow(), 0)
-        selected_key = selected.data(Qt.ItemDataRole.UserRole) if selected else None
-        table.setRowCount(len(records))
+        selected_key = self.selected(table)
+        scroll = table.verticalScrollBar().value()
+        if not table.model().replace(records, values):
+            return
         for index, record in enumerate(records):
-            for column, value in enumerate(values(record)):
-                item = QTableWidgetItem(str(value))
-                item.setToolTip(str(value))
-                item.setData(Qt.ItemDataRole.UserRole, record)
-                table.setItem(index, column, item)
             if selected_key and selected_key.get('chain') == record.get('chain') and selected_key.get('address') == record.get('address'):
                 table.selectRow(index)
+                break
+        table.verticalScrollBar().setValue(scroll)
 
     def refresh(self):
         state = self.monitor.status()
         self.status_label.setText(('MONITORING' if state['enabled'] else 'STOPPED') + ' · ' + str(state['checked']) + ' flow samples checked · ' + str(state['skipped']) + ' incomplete samples skipped' + (' · ' + state['error'] if state['error'] else ''))
         self.persist_session()
-        tokens = self.store.tokens()
+        snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
+        tokens = snapshot['tokens']
         self.metrics['tokens'].setText(str(len(tokens)))
-        self.metrics['alerts'].setText(str(len(self.alerts.recent())))
-        self.metrics['watched'].setText(str(len(self.store.watchlist())))
+        self.metrics['alerts'].setText(str(len(snapshot['alerts'])))
+        self.metrics['watched'].setText(str(len(snapshot['watchlist'])))
         self.metrics['samples'].setText(str(state['checked']))
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
         values = lambda r: [r['name'], r['chain'].upper(), r['address'][:7] + '...' + r['address'][-5:] if len(r['address']) > 16 else r['address'], (money(r.get('market_cap_usd')) + '\n' + r.get('market_cap_source', 'Saved sample') + ' · ' + stamp(r.get('market_cap_updated_at'))) if r.get('market_cap_usd') is not None else 'Awaiting provider data', money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at')), stamp(r.get('first_seen'))]
         self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
-        watched = set(self.store.watchlist())
+        watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
-        alerts = self.alerts.recent()
+        alerts = snapshot['alerts']
         self.fill_table(self.tables['Triggered alerts'], alerts, lambda r: [stamp(r['captured_at']), r['chain'], r['address'], 'Net inflow > $100k / 5m' if r['rule'] == 'net_inflow_100k_5m' else 'Market cap $40k before 5m', money(r['value_usd'])])
         for alert in sorted(alerts, key=lambda r: r['id']):
             if alert['id'] <= self.cursor:
@@ -255,11 +345,11 @@ class DesktopWindow(QMainWindow):
                 title = 'Net inflow above $100,000' if alert['rule'] == 'net_inflow_100k_5m' else 'Early $40,000 market cap'
                 self.tray.showMessage(title, alert['chain'] + ' · ' + money(alert['value_usd']) + '\n' + alert['address'], QSystemTrayIcon.MessageIcon.Information, 10000)
             self.cursor = alert['id']
-            self.store.set('notification_cursor', self.cursor)
+            self.save_setting('notification_cursor', self.cursor)
 
     def selected(self, table):
-        item = table.item(table.currentRow(), 0)
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+        index = table.currentIndex()
+        return table.model().data(index, Qt.ItemDataRole.UserRole) if index.isValid() else None
 
     def copy_address(self, table):
         record = self.selected(table)
@@ -276,24 +366,23 @@ class DesktopWindow(QMainWindow):
         if not record:
             return
         try:
-            (self.store.watch if add else self.store.unwatch)(record['chain'], record['address'])
+            self.run_store(self.store.watch if add else self.store.unwatch, record['chain'], record['address'])
             self.refresh()
         except ValueError as error:
             QMessageBox.information(self, 'Watchlist', str(error))
 
     def add_watch(self):
         try:
-            self.store.watch(self.chain_input.text().strip(), self.address_input.text().strip())
+            self.run_store(self.store.watch, self.chain_input.text().strip(), self.address_input.text().strip())
             self.address_input.clear()
             self.refresh()
         except ValueError as error:
             QMessageBox.information(self, 'Watchlist', str(error))
 
     def inspect(self, table, row):
-        item = table.item(row, 0)
-        if not item:
+        if row < 0 or row >= table.model().rowCount():
             return
-        record = item.data(Qt.ItemDataRole.UserRole)
+        record = table.model().records[row]
         QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Market cap: ' + money(record.get('market_cap_usd')), 'Market cap provider: ' + record.get('market_cap_source', 'Not sampled'), 'Market cap sampled: ' + stamp(record.get('market_cap_updated_at')), 'Net inflow over five minutes: ' + money(record.get('net_inflow_m5_usd')), 'Flow sampled: ' + stamp(record.get('flow_updated_at'))]))
 
     def show_alert_history(self):
@@ -314,18 +403,31 @@ class DesktopWindow(QMainWindow):
             event.ignore()
 
     def quit_app(self):
+        if self.quitting:
+            return
         self.quitting = True
         self.stop_monitor()
-        self.stop.set()
         self.tray.hide()
-        QApplication.instance().quit()
+        if self.background:
+            self.status_label.setText('Saving your session and closing...')
+            self.pending_store.put((self.finish_quit, ()))
+        else:
+            self.finish_quit()
+            QApplication.instance().quit()
+
+    def finish_quit(self):
+        self.stop.set()
+        self.store_signals.finished.emit()
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data-dir')
     parser.add_argument('--smoke-test')
+    parser.add_argument('--responsiveness-test')
     args = parser.parse_args()
+    if args.responsiveness_test:
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     application = QApplication(sys.argv[:1])
     application.setQuitOnLastWindowClosed(False)
     application.setApplicationName('Gem Search')
@@ -348,8 +450,8 @@ def main():
         QTabWidget::pane{border:1px solid #30343b;background:#15171b;border-radius:10px}
         QTabBar::tab{padding:14px 24px;background:transparent;color:#9aa0a6;border-bottom:3px solid transparent;font-weight:600}
         QTabBar::tab:selected{color:#8ab4f8;border-bottom-color:#4285F4}
-        QTableWidget{background:#17191e;alternate-background-color:#1c1f25;border:none;selection-background-color:#243859;selection-color:#fff}
-        QTableWidget::item{padding:8px;border-bottom:1px solid #292d35}
+        QTableView{background:#17191e;alternate-background-color:#1c1f25;border:none;selection-background-color:#243859;selection-color:#fff}
+        QTableView::item{padding:8px;border-bottom:1px solid #292d35}
         QHeaderView::section{background:#20232a;color:#9aa0a6;padding:12px;border:none;font-weight:600}
         QCheckBox{spacing:10px;padding:6px}
         QScrollBar:vertical{background:#17191e;width:10px;margin:0}
@@ -362,12 +464,18 @@ def main():
     ''')
     directory = Path(args.data_dir) if args.data_dir else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'GemSearch'
     store = DesktopStore(directory)
+    if args.responsiveness_test:
+        from desktop_checks import seed_responsiveness_data
+        seed_responsiveness_data(store)
     lock = QLockFile(str(directory / 'desktop.lock'))
     if not lock.tryLock(100):
         QMessageBox.information(None, 'Gem Search is already running', 'Open Gem Search from its system tray icon.')
         return
     window = DesktopWindow(store, background=not bool(args.smoke_test))
     window.show()
+    if args.responsiveness_test:
+        from desktop_checks import run_responsiveness_check
+        check_timer = run_responsiveness_check(application, window, store, args.responsiveness_test)
     if args.smoke_test:
         store.record('base', '0x' + 'a' * 40, {'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'net_inflow_m5_usd': 125000, 'flow_updated_at': time.time()})
         store.watch('base', '0x' + 'a' * 40)
@@ -388,7 +496,10 @@ def main():
         Path(args.smoke_test).with_suffix('.json').write_text(json.dumps({'passed': True, 'checks': ['live tokens', 'watchlist', 'alert history', 'search', 'persisted start and stop', 'native widget rendering']}))
         window.quit_app()
         return
-    sys.exit(application.exec())
+    result = application.exec()
+    if args.responsiveness_test:
+        result = 0 if json.loads(Path(args.responsiveness_test).read_text())['passed'] else 1
+    sys.exit(result)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import json
 import math
 import time
+from contextlib import nullcontext
 
 
 class TokenAlerts:
@@ -16,7 +17,7 @@ class TokenAlerts:
               PRIMARY KEY(chain,address,rule));
             ''')
 
-    def evaluate(self, chain, address, metrics, captured=None):
+    def evaluate(self, chain, address, metrics, captured=None, gate=None):
         captured = time.time() if captured is None else captured
         checks = {}
         inflow = metrics.get('net_inflow_m5_usd')
@@ -28,15 +29,20 @@ class TokenAlerts:
             checks['market_cap_40k_before_5m'] = (cap >= 40000, cap)
         emitted = []
         with self.connect() as con:
-            for rule, (active, value) in checks.items():
-                previous = con.execute('SELECT active FROM token_alert_state WHERE chain=? AND address=? AND rule=?', (chain, address, rule)).fetchone()
-                if active and (previous is None or not previous[0]):
-                    alert = {'chain': chain, 'address': address, 'rule': rule, 'captured_at': captured, 'value_usd': value, 'source': metrics.get('source'), 'creation_source': metrics.get('creation_source')}
-                    cursor = con.execute('INSERT INTO token_alerts(chain,address,rule,captured,value,payload) VALUES (?,?,?,?,?,?)', (chain, address, rule, captured, value, json.dumps(alert)))
-                    alert['id'] = cursor.lastrowid
-                    emitted.append(alert)
-                con.execute('INSERT OR REPLACE INTO token_alert_state VALUES (?,?,?,?)', (chain, address, rule, int(active)))
-            con.execute('DELETE FROM token_alerts WHERE id NOT IN (SELECT id FROM token_alerts ORDER BY id DESC LIMIT 10000)')
+            con.execute('BEGIN IMMEDIATE')
+            with gate() if gate else nullcontext(True) as allowed:
+                if not allowed:
+                    return []
+                for rule, (active, value) in checks.items():
+                    previous = con.execute('SELECT active FROM token_alert_state WHERE chain=? AND address=? AND rule=?', (chain, address, rule)).fetchone()
+                    if active and (previous is None or not previous[0]):
+                        alert = {'chain': chain, 'address': address, 'rule': rule, 'captured_at': captured, 'value_usd': value, 'source': metrics.get('source'), 'creation_source': metrics.get('creation_source')}
+                        cursor = con.execute('INSERT INTO token_alerts(chain,address,rule,captured,value,payload) VALUES (?,?,?,?,?,?)', (chain, address, rule, captured, value, json.dumps(alert)))
+                        alert['id'] = cursor.lastrowid
+                        emitted.append(alert)
+                    con.execute('INSERT OR REPLACE INTO token_alert_state VALUES (?,?,?,?)', (chain, address, rule, int(active)))
+                con.execute('DELETE FROM token_alerts WHERE id NOT IN (SELECT id FROM token_alerts ORDER BY id DESC LIMIT 10000)')
+                con.commit()
         return emitted
 
     @staticmethod

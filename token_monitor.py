@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.parse import quote
+from contextlib import contextmanager
 
 
 def get_json(path):
@@ -89,6 +90,11 @@ class TokenMonitor:
             self.generation += 1
         return self.status()
 
+    @contextmanager
+    def alert_gate(self, generation):
+        with self.lock:
+            yield self.enabled and generation == self.generation and (not self.expires or time.time() < self.expires)
+
     def status(self):
         with self.lock:
             if self.expires and time.time() >= self.expires:
@@ -170,15 +176,15 @@ class TokenMonitor:
                 with self.lock:
                     if not self.enabled or generation != self.generation or self.expires and time.time() >= self.expires:
                         break
-                    if time.time() - captured > 60:
-                        complete = False
-                    if complete:
-                        if self.observer:
-                            self.observer(network, address, {'net_inflow_m5_usd': total, 'flow_updated_at': captured})
-                        self.alerts.evaluate(network, address, {'net_inflow_m5_usd': total, 'source': 'GeckoTerminal indexed token pools'}, captured)
-                        self.checked += 1
-                    else:
-                        self.skipped += 1
+                if time.time() - captured > 60:
+                    complete = False
+                if complete:
+                    if self.observer:
+                        self.observer(network, address, {'net_inflow_m5_usd': total, 'flow_updated_at': captured})
+                    self.alerts.evaluate(network, address, {'net_inflow_m5_usd': total, 'source': 'GeckoTerminal indexed token pools'}, captured, gate=lambda: self.alert_gate(generation))
+                    self.checked += 1
+                else:
+                    self.skipped += 1
             self.error = None
         except Exception as exc:
             self.error = 'Discovery unavailable: ' + type(exc).__name__
