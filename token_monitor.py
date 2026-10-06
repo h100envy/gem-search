@@ -42,8 +42,10 @@ def net_swaps(trades, captured):
 
 
 class TokenMonitor:
-    def __init__(self, alerts):
+    def __init__(self, alerts, observer=None, watchlist=None):
         self.alerts = alerts
+        self.observer = observer
+        self.watchlist = watchlist
         self.lock = threading.Lock()
         self.enabled = False
         self.expires = None
@@ -83,12 +85,15 @@ class TokenMonitor:
             for pool in pools[:20]:
                 attr = pool['attributes']
                 volume = float(attr.get('volume_usd', {}).get('m5', 0))
-                if volume <= 100000:
-                    continue
                 network = pool['relationships']['network']['data']['id']
                 token_id = pool['relationships']['base_token']['data']['id']
                 address = token_id.removeprefix(network + '_')
+                if self.observer:
+                    self.observer(network, address, {'name': attr.get('name', address).split(' / ')[0], 'price_usd': attr.get('base_token_price_usd'), 'market_cap_usd': attr.get('market_cap_usd'), 'volume_m5_usd': volume, 'pool_created_at': attr.get('pool_created_at'), 'updated_at': time.time()})
                 candidates[(network, address)] = volume
+            if self.watchlist:
+                for network, address in self.watchlist():
+                    candidates[(network, address)] = float('inf')
             with self.alerts.connect() as con:
                 for row in con.execute("SELECT chain,address FROM token_alert_state WHERE rule='net_inflow_100k_5m' AND active=1"):
                     candidates.setdefault((row[0], row[1]), 100001)
@@ -121,6 +126,8 @@ class TokenMonitor:
                     if time.time() - captured > 60:
                         complete = False
                     if complete:
+                        if self.observer:
+                            self.observer(network, address, {'net_inflow_m5_usd': total, 'flow_updated_at': captured})
                         self.alerts.evaluate(network, address, {'net_inflow_m5_usd': total, 'source': 'GeckoTerminal indexed token pools'}, captured)
                         self.checked += 1
                     else:

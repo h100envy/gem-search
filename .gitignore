@@ -3,6 +3,9 @@ data/
 .DS_Store
 dist/
 .venv/
+.venv-desktop/
+build/
+*.spec
 .env.*
 !.env.example
 *.pyc

