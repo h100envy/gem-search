@@ -70,6 +70,12 @@ no extra dependencies; the update offset and watch list live in `/data` (`bot-st
 
 Limits per user: 8 scans and 3 X-rays a minute; scans are cached for 60 s and X-rays for 5 minutes.
 
+Replies are picture cards in the site's look (`bot/render.mjs`: SVG built in code, rasterised with
+`@resvg/resvg-js`, DejaVu fonts from `apk add font-dejavu`): a 1200×675 scan card (score ring, flags first, market
+row), a 1200×900 X-ray web (holders on rings, clusters, launch-block chain, verdict panel) and a 1200×630 alert card;
+`/start` and `/token` send the artwork in `bot/assets/`. The text goes along as the caption (overflow past 1024
+characters follows as a message). If a card cannot be drawn or sent, the bot falls back to the text message.
+
 ```sh
 TELEGRAM_BOT_TOKEN=… SOLANA_RPC_URL=… BOT_DATA_DIR=./data node bot.mjs
 docker run -d --name gem-bot --restart unless-stopped --env-file .env -v "$PWD/data:/data" gem-launchpad:latest node bot.mjs

@@ -5,6 +5,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { scanToken } from './scan.mjs';
 import { xrayToken } from './xray.mjs';
 import { LaunchError } from './launch.mjs';
+import { scanSvg, xraySvg, alertSvg, render, fetchImage } from './bot/render.mjs';
 
 /**
  * Gem Search on Telegram: scans a coin, X-rays who holds it, and watches it for changes. Talks to the Bot API with
@@ -228,6 +229,19 @@ export const TOKEN_TEXT = [
   `🌐 <a href="${SITE}">gemsearch.fun</a> · 𝕏 <a href="https://x.com/gemsearchfun">@gemsearchfun</a>`,
 ].join('\n');
 
+/** Visible length of an HTML message, as Telegram counts a caption. */
+export const visibleLength = (html) => String(html).replace(/<[^>]+>/g, '').replace(/&(lt|gt|amp|quot);/g, '_').length;
+
+/** A caption that fits (≤ max visible characters, cut between lines) and the rest for a follow-up message. */
+export function splitCaption(html, max = 1024) {
+  if (visibleLength(html) <= max) return [html, null];
+  const lines = String(html).split('\n');
+  const head = [];
+  while (lines.length && visibleLength([...head, lines[0]].join('\n')) <= max) head.push(lines.shift());
+  if (!head.length) return ['', html];
+  return [head.join('\n').trimEnd(), lines.join('\n').trim() || null];
+}
+
 /** Splits "/scan@bot arg" into its parts; null when it is not a command or is meant for another bot. */
 export function parseCommand(text, botName) {
   const m = /^\/([a-zA-Z_]+)(?:@([A-Za-z0-9_]+))?(?:\s+([\s\S]*))?$/.exec(String(text ?? '').trim());
@@ -315,6 +329,78 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     return true;
   }
 
+  // Pictures: one PNG per data result (a WeakMap keyed by the cached object lives exactly as long as the data
+  // cache keeps it); coin images are fetched once per 10 minutes; fixed artwork goes up once, then by file_id.
+  const pictures = new WeakMap();
+  const images = new Map();
+  const uploaded = new Map();
+  function coinImage(url) {
+    if (!url) return Promise.resolve(null);
+    const hit = images.get(url);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.promise;
+    const promise = fetchImage(url);
+    images.set(url, { at: Date.now(), promise });
+    if (images.size > 300) for (const [k, v] of images) if (Date.now() - v.at > 10 * 60_000) images.delete(k);
+    return promise;
+  }
+  function picture(obj, build) {
+    if (!obj || typeof obj !== 'object') return build();
+    if (!pictures.has(obj)) {
+      const p = build();
+      pictures.set(obj, p);
+      p.catch(() => pictures.delete(obj));
+    }
+    return pictures.get(obj);
+  }
+  const scanPng = (s) => picture(s, async () => render(scanSvg(s, await coinImage(s.image))));
+  const xrayPng = (x, s) => picture(x, async () => render(xraySvg(x, s, await coinImage(s?.image))));
+
+  async function tgForm(method, fields, file) {
+    for (let i = 0; ; i++) {
+      const form = new FormData();
+      for (const [k, v] of Object.entries(fields)) if (v !== undefined) form.append(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
+      form.append(file.field, new Blob([file.data], { type: file.type }), file.name);
+      let res;
+      try {
+        res = await (await fetch(`${API}/${method}`, { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) })).json();
+      } catch (e) {
+        if (i >= 2) throw new Error(`${method}: ${e.message}`);
+        await sleep(1_000 * (i + 1));
+        continue;
+      }
+      if (res.ok) return res.result;
+      if (res.error_code === 429 && i < 3) {
+        await sleep(((res.parameters?.retry_after ?? 1) + 0.5) * 1000);
+        continue;
+      }
+      const err = new Error(`${method}: ${res.error_code} ${res.description}`);
+      err.code = res.error_code;
+      err.description = res.description;
+      throw err;
+    }
+  }
+
+  /**
+   * A photo (PNG buffer, or a cached file_id under `key`) with the HTML text as its caption; text past 1024
+   * characters follows as a message. The keyboard goes on the last message so it sits under everything.
+   */
+  async function sendPhoto(chatId, photo, html, { reply_markup, reply_to_message_id, key, name = 'card.png', type = 'image/png' } = {}) {
+    const [caption, rest] = splitCaption(html);
+    const fields = { chat_id: chatId, caption, parse_mode: 'HTML', reply_to_message_id, allow_sending_without_reply: reply_to_message_id ? true : undefined, reply_markup: rest ? undefined : reply_markup };
+    let sent;
+    const id = key && uploaded.get(key);
+    if (id) sent = await tg('sendPhoto', { ...fields, photo: id }).catch(() => null);
+    if (!sent) {
+      const data = typeof photo === 'function' ? await photo() : photo;
+      sent = await tgForm('sendPhoto', fields, { field: 'photo', data, name, type });
+      const fid = sent.photo?.[sent.photo.length - 1]?.file_id;
+      if (key && fid) uploaded.set(key, fid);
+    }
+    if (rest) await send(chatId, rest, { reply_markup }).catch((e) => log.error('[bot] follow-up', clean(e)));
+    return sent;
+  }
+  const asset = (file) => () => readFile(new URL(`./bot/assets/${file}`, import.meta.url));
+
   const send = (chatId, text, extra = {}) => tg('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
   const edit = (chatId, messageId, text, extra = {}) => tg('editMessageText', { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
   const errorText = (e) => {
@@ -328,7 +414,13 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     const msg = await send(chatId, '🕷️ scanning…', { reply_to_message_id: replyTo, allow_sending_without_reply: true });
     try {
       const s = await scan(mint);
-      await edit(chatId, msg.message_id, formatScan(s), { reply_markup: scanKeyboard(s) });
+      try {
+        await sendPhoto(chatId, await scanPng(s), formatScan(s), { reply_markup: scanKeyboard(s), reply_to_message_id: replyTo });
+        await tg('deleteMessage', { chat_id: chatId, message_id: msg.message_id }).catch(() => {});
+      } catch (e) {
+        log.error('[bot] scan card', clean(e));
+        await edit(chatId, msg.message_id, formatScan(s), { reply_markup: scanKeyboard(s) });
+      }
     } catch (e) {
       await edit(chatId, msg.message_id, errorText(e)).catch(() => {});
     }
@@ -339,7 +431,14 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     const msg = await send(chatId, '🕸️ X-raying… (following the money takes up to a minute)', { reply_to_message_id: replyTo, allow_sending_without_reply: true });
     try {
       const [x, s] = await Promise.all([xray(mint), scan(mint).catch(() => null)]);
-      await edit(chatId, msg.message_id, formatXray(x, s), { reply_markup: { inline_keyboard: [[{ text: '🔎 See the web', url: `${SITE}/scan?ca=${mint}` }]] } });
+      const kb = { inline_keyboard: [[{ text: '🔎 See the web', url: `${SITE}/scan?ca=${mint}` }]] };
+      try {
+        await sendPhoto(chatId, await xrayPng(x, s), formatXray(x, s), { reply_markup: kb, reply_to_message_id: replyTo });
+        await tg('deleteMessage', { chat_id: chatId, message_id: msg.message_id }).catch(() => {});
+      } catch (e) {
+        log.error('[bot] xray card', clean(e));
+        await edit(chatId, msg.message_id, formatXray(x, s), { reply_markup: kb });
+      }
     } catch (e) {
       await edit(chatId, msg.message_id, errorText(e)).catch(() => {});
     }
@@ -389,7 +488,13 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
             w.snap = snap;
             if (alerts.length) {
               try {
-                await send(chatId, formatAlert(mint, s, alerts), { reply_markup: scanKeyboard(s) });
+                try {
+                  await sendPhoto(chatId, render(alertSvg(s, alerts, await coinImage(s.image))), formatAlert(mint, s, alerts), { reply_markup: scanKeyboard(s) });
+                } catch (e) {
+                  if (e.code === 403 || /chat not found/i.test(e.description ?? '')) throw e;
+                  log.error('[bot] alert card', clean(e));
+                  await send(chatId, formatAlert(mint, s, alerts), { reply_markup: scanKeyboard(s) });
+                }
               } catch (e) {
                 if (e.code === 403 || /chat not found/i.test(e.description ?? '')) {
                   log.log(`[bot] chat ${chatId} gone, dropping its watches`);
@@ -430,7 +535,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
       switch (cmd.cmd) {
         case 'start':
         case 'help':
-          return send(chatId, HELP);
+          return sendPhoto(chatId, asset('banner.jpg'), HELP, { key: 'banner', name: 'gemsearch.jpg', type: 'image/jpeg' }).catch((e) => {
+            log.error('[bot] banner', clean(e));
+            return send(chatId, HELP);
+          });
         case 'scan': {
           const mint = ca();
           return mint ? runScan(chatId, userId, mint, m.message_id) : need('scan');
@@ -452,7 +560,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         case 'launch':
           return send(chatId, LAUNCH_TEXT);
         case 'token':
-          return send(chatId, TOKEN_TEXT);
+          return sendPhoto(chatId, asset('avatar.jpg'), TOKEN_TEXT, { key: 'avatar', name: 'gemsearch.jpg', type: 'image/jpeg' }).catch((e) => {
+            log.error('[bot] avatar', clean(e));
+            return send(chatId, TOKEN_TEXT);
+          });
         default:
           return priv ? send(chatId, '🕷️ I do not know that one. /help lists what I can do.') : null;
       }

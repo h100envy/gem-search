@@ -121,3 +121,98 @@ test('diffs snapshots into alerts', () => {
   step.score = 74;
   assert.match(diffSnapshots(snap, snapshot(step)).alerts.join(), /Score 85 → 74/);
 });
+
+// --- picture cards -------------------------------------------------------------------------------------------------
+import { splitCaption, visibleLength, HELP, TOKEN_TEXT } from '../bot.mjs';
+import { scanSvg, xraySvg, alertSvg, orderChecks, parseAlert, ellipsize, plain, measure } from '../bot/render.mjs';
+
+const wellFormed = (svg) => {
+  assert.match(svg, /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg"[^>]*>[\s\S]*<\/svg>$/);
+  // every opened element is closed: count opening vs closing/self-closing tags
+  const tags = [...svg.matchAll(/<(\/?)([a-zA-Z]+)[^>]*?(\/?)>/g)];
+  const stack = [];
+  for (const [, close, name, self] of tags) {
+    if (self) continue;
+    if (close) assert.equal(stack.pop(), name);
+    else stack.push(name);
+  }
+  assert.equal(stack.length, 0);
+};
+
+test('captions fit Telegram and split between lines', () => {
+  assert.ok(visibleLength(HELP) <= 1024);
+  assert.ok(visibleLength(TOKEN_TEXT) <= 1024);
+  assert.equal(visibleLength('<b>a&amp;b</b>'), 3);
+  const long = Array.from({ length: 60 }, (_, i) => `<b>line ${i}</b> ${'x'.repeat(20)}`).join('\n');
+  const [cap, rest] = splitCaption(long);
+  assert.ok(visibleLength(cap) <= 1024);
+  assert.ok(rest.startsWith('<b>line'));
+  assert.equal(cap.split('\n').length + rest.split('\n').length, 60);
+  assert.deepEqual(splitCaption('short'), ['short', null]);
+});
+
+test('flags come first on the scan card', () => {
+  const order = orderChecks(sample.checks).map((c) => c.status);
+  assert.deepEqual(order, ['fail', 'warn', 'unknown', 'info', 'pass', 'pass', 'pass']);
+  const many = { ...sample, checks: [...Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, label: `Pass ${i}`, status: 'pass', detail: 'ok' })), { id: 'bad', label: 'Bad thing', status: 'fail', detail: 'broken' }] };
+  const svg = scanSvg(many);
+  wellFormed(svg);
+  assert.match(svg, /Bad thing/);
+  assert.ok(svg.indexOf('Bad thing') < svg.indexOf('Pass 0'));
+  assert.match(svg, /\+2 more on gemsearch.fun/);
+});
+
+test('scan card SVG', () => {
+  const svg = scanSvg(sample, 'data:image/png;base64,AAAA');
+  wellFormed(svg);
+  assert.match(svg, />85<\/text>/);
+  assert.match(svg, /GEM SEARCH · TOKEN SCAN/);
+  assert.match(svg, /Gem &lt;Search&gt; &amp; co/);
+  assert.match(svg, /\$GEMSEARCH/);
+  assert.match(svg, /ON CURVE 42.5%/);
+  assert.match(svg, /DEX PAID/);
+  assert.match(svg, /\$123.5K/);
+  assert.match(svg, /holders can be &lt;frozen&gt;/);
+  assert.match(svg, /data:image\/png;base64,AAAA/);
+  assert.match(svg, new RegExp(TOKEN_CA));
+  wellFormed(scanSvg({ mint: TOKEN_CA, score: 0, checks: [] }));
+});
+
+test('X-ray card SVG', () => {
+  const xr = {
+    mint: TOKEN_CA, poolPct: 40, launch: { signature: 's' },
+    bundle: { sameBlockWallets: 3, sameBlockBoughtPct: 12, launchWindowWallets: 4, launchWindowBoughtPct: 13, launchBuyersHoldNowPct: 9, windowSeconds: 5 },
+    clusters: [{ wallets: ['a', 'b', 'c'], size: 3, holdsPct: 9, reasons: ['3 bought in the launch block'], funders: ['f'] }],
+    nodes: [{ id: 'a', pct: 4, kind: 'dev', cluster: 0 }, { id: 'b', pct: 3, kind: 'bundle', cluster: 0 }, { id: 'c', pct: 2, kind: 'bundle', cluster: 0 }, { id: 'd', pct: 1, kind: 'holder', cluster: null }, { id: 'f', pct: 0, kind: 'funder', cluster: 0 }],
+    edges: [{ from: 'f', to: 'b', kind: 'funded' }, { from: 'f', to: 'c', kind: 'funded' }],
+  };
+  const svg = xraySvg(xr, sample);
+  wellFormed(svg);
+  assert.match(svg, /BUNDLE/);
+  assert.match(svg, /3 wallets/);
+  assert.match(svg, />4%<\/text>/);
+  assert.ok(!/>1%<\/text>/.test(svg)); // labels only from 1.5%
+  assert.match(svg, /stroke-dasharray="7 6"/); // launch-block chain
+  assert.match(svg, /#1fd2ff/);
+  wellFormed(xraySvg({ mint: TOKEN_CA, poolPct: 0, bundle: null, clusters: [], nodes: [], edges: [] }));
+  assert.match(xraySvg({ mint: TOKEN_CA, poolPct: 0, bundle: null, clusters: [], nodes: [], edges: [] }), /NO LINKED WALLETS/);
+});
+
+test('alert card SVG', () => {
+  assert.deepEqual(parseAlert('📉 Score 85 → 60'), { level: 'fail', label: 'Score', from: '85', to: '60' });
+  assert.deepEqual(parseAlert('❌ Top 10 holders: warn → fail'), { level: 'fail', label: 'Top 10 holders', from: 'warn', to: 'fail' });
+  assert.equal(parseAlert('🎓 Graduated from the pump.fun curve').from, null);
+  const svg = alertSvg(sample, ['📉 Score 85 → 60', '🎓 Graduated from the pump.fun curve']);
+  wellFormed(svg);
+  assert.match(svg, /WATCH ALERT/);
+  assert.match(svg, />60<\/text>/);
+  assert.match(svg, /Graduated from the pump.fun curve/);
+  assert.ok(!/\p{Extended_Pictographic}/u.test(svg.replace(/→/g, '')));
+});
+
+test('text fitting', () => {
+  assert.equal(plain('🚀 Moon  coin 🐸'), 'Moon coin');
+  const e = ellipsize('A very long coin name that will not fit anywhere', 30, 200);
+  assert.ok(e.endsWith('…'));
+  assert.ok(measure(e, 30) <= 200);
+});
