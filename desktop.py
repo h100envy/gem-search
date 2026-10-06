@@ -173,6 +173,7 @@ class DesktopWindow(QMainWindow):
             controls.addWidget(button)
         layout.addLayout(controls)
         self.status_label = QLabel()
+        self.status_label.setWordWrap(True)
         self.status_label.setObjectName('status')
         layout.addWidget(self.status_label)
         self.tabs = QTabWidget()
@@ -557,6 +558,9 @@ def main():
         QMessageBox.information(None, 'Gem Search is already running', 'Open Gem Search from its system tray icon.')
         return
     window = DesktopWindow(store, background=not bool(args.smoke_test))
+    available = application.primaryScreen().availableGeometry()
+    window.resize(min(1320, available.width() - 32), min(850, available.height() - 32))
+    window.move(available.left() + 16, available.top() + 16)
     window.show()
     if not args.smoke_test and not args.responsiveness_test:
         QTimer.singleShot(250, window.reopen)
