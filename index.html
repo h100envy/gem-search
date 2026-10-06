@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gem Search — Let curiosity crawl</title>
+<meta name="description" content="A rainbow spider walks your X feed and turns the posts you already read into research leads with a trail. Open source, runs on your own computer.">
+<meta property="og:title" content="Gem Search — Let curiosity crawl">
+<meta property="og:description" content="A rainbow spider that reads your feed and follows the evidence. Open source, local first.">
+<meta property="og:image" content="og.jpg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="og.jpg">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#06041a; --bg2:#0e0a2e; --card:#130f38; --line:#2a2560; --text:#f4f0ff; --muted:#b9b3e0; --dim:#7d78a8;
+  --green:#4dff6a; --cyan:#1fd2ff;
+  --rainbow:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Space Grotesk",system-ui,-apple-system,Arial,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.rb{background:var(--rainbow);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+
+/* nav */
+nav{position:fixed;inset:0 0 auto 0;z-index:10;backdrop-filter:blur(12px);background:rgba(6,4,26,.6);border-bottom:1px solid rgba(255,255,255,.06)}
+nav .wrap{display:flex;align-items:center;gap:20px;height:64px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;font-size:20px;letter-spacing:-.5px}
+.logo img{width:34px;height:34px;border-radius:50%}
+nav .links{margin-left:auto;display:flex;gap:22px;align-items:center;font-size:15px}
+nav .links a{text-decoration:none;color:var(--muted)}
+nav .links a:hover{color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:999px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid transparent;cursor:pointer;transition:transform .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.primary{background:var(--rainbow);color:#0a0820}
+.btn.ghost{border-color:rgba(255,255,255,.22);color:var(--text);background:rgba(255,255,255,.04)}
+nav .btn{padding:8px 16px}
+@media (max-width:720px){nav .links a:not(.btn){display:none}}
+
+/* hero */
+.hero{position:relative;min-height:100vh;min-height:100svh;overflow:hidden;display:flex;align-items:flex-start}
+.hero svg{position:absolute;top:0;left:0;width:100%;height:100vh;height:100svh}
+.hero .shade{position:absolute;inset:auto 0 0 0;height:60%;background:linear-gradient(to top,var(--bg) 8%,rgba(6,4,26,.75) 45%,transparent)}
+/* spider bottom sits at 485/1080 of the slice-scaled scene */
+.hero .content{position:relative;width:100%;padding-top:calc(max(25.3vw, 44.9vh) + 10px);padding-bottom:64px;text-align:center}
+.pill{display:inline-flex;align-items:center;gap:10px;padding:7px 16px;border-radius:999px;border:1px solid rgba(77,255,106,.55);background:rgba(77,255,106,.08);font-size:14px;color:#cfffd8}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.35}}
+h1{font-size:clamp(44px,8vw,104px);line-height:1;margin:18px 0 14px;letter-spacing:-.04em;font-weight:700}
+.hero p.lead{font-size:clamp(17px,2.2vw,21px);color:var(--muted);max-width:680px;margin:0 auto 28px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+/* token */
+.token{margin:26px auto 0;display:inline-flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;padding:10px 12px 10px 20px;border-radius:16px;background:rgba(19,15,56,.85);border:1px solid var(--line)}
+.token b{font-size:20px}
+.token .ca{font-size:13px;color:var(--muted);max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.token button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:var(--text);border-radius:10px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer}
+
+/* sections */
+section{padding:96px 0}
+.eyebrow{font-size:13px;letter-spacing:.2em;color:var(--cyan);text-transform:uppercase}
+h2{font-size:clamp(32px,4.4vw,52px);line-height:1.08;letter-spacing:-.03em;margin:10px 0 18px}
+.sub{color:var(--muted);font-size:18px;max-width:640px;margin:0}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+@media (max-width:860px){.grid3{grid-template-columns:1fr}}
+.card{background:linear-gradient(180deg,var(--card),#0c0928);border:1px solid var(--line);border-radius:20px;padding:26px;position:relative;overflow:hidden}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--rainbow);opacity:.8}
+.card .ic{font-size:28px}
+.card h3{font-size:21px;margin:12px 0 8px;letter-spacing:-.01em}
+.card p{color:var(--muted);margin:0;font-size:16px}
+
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:44px;counter-reset:s}
+@media (max-width:960px){.flow{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.flow{grid-template-columns:1fr}}
+.step{border:1px solid var(--line);border-radius:18px;padding:22px;background:rgba(19,15,56,.6)}
+.step .n{font-size:12px;letter-spacing:.15em}
+.step h3{margin:10px 0 6px;font-size:20px}
+.step p{margin:0;color:var(--muted);font-size:15px}
+
+.split{display:grid;grid-template-columns:1.1fr 1fr;gap:40px;align-items:center}
+@media (max-width:860px){.split{grid-template-columns:1fr}}
+ul.checks{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px}
+ul.checks li{display:flex;gap:12px;color:var(--muted);font-size:17px}
+ul.checks li::before{content:"✓";color:var(--green);font-weight:700}
+ul.checks.no li::before{content:"✕";color:#ff5e8e}
+
+pre{margin:0;background:#0a0822;border:1px solid var(--line);border-radius:18px;padding:22px 24px;overflow-x:auto;font-size:14.5px;line-height:1.8;color:#d9d4ff}
+pre .c{color:var(--dim)}
+pre .p{color:var(--green)}
+ol.steps{color:var(--muted);padding-left:20px;margin:22px 0 0;font-size:16px;display:grid;gap:8px}
+ol.steps b{color:var(--text)}
+
+footer{border-top:1px solid rgba(255,255,255,.07);padding:40px 0 60px;color:var(--dim);font-size:14px}
+footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between;align-items:center}
+footer .disc{letter-spacing:.14em;font-size:12px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(30px);opacity:0;background:#1a1450;border:1px solid var(--line);padding:10px 18px;border-radius:12px;transition:.25s;font-size:14px}
+.toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="logo" href="#"><img src="avatar.png" alt=""><span>gem<span class="rb">search</span></span></a>
+  <div class="links">
+    <a href="#how">How it works</a>
+    <a href="#start">Quick start</a>
+    <a class="btn ghost" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a>
+  </div>
+</div></nav>
+
+<header class="hero">
+  <svg id="scene" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMin slice" aria-hidden="true"></svg>
+  <div class="shade"></div>
+  <div class="content wrap">
+    <span class="pill"><span class="dot"></span><span class="mono">$GEMSEARCH is live</span></span>
+    <h1>Let curiosity <span class="rb">crawl.</span></h1>
+    <p class="lead">A rainbow spider walks your X feed and turns the posts you already read into research leads, each with a trail you can check.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">Get it on GitHub</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    <div id="token" class="token mono">
+      <b class="rb">$GEMSEARCH</b>
+      <span class="ca" id="ca"></span>
+      <button id="copy" type="button">Copy CA</button>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow mono">// meet the spider</div>
+    <h2>The curious side of <span class="rb">your feed.</span></h2>
+    <p class="sub">Gem Search puts an eight-legged research companion on X. It walks between visible posts, highlights what it is inspecting and hands it to a research engine on your own computer.</p>
+    <div class="grid3">
+      <div class="card"><div class="ic">🕷️</div><h3>A companion with character</h3><p>The spider pauses on a post and shows what it is investigating. You see the work happening, right in the tab.</p></div>
+      <div class="card"><div class="ic">🔎</div><h3>Every lead has a trail</h3><p>Posts, public links, checks and unknowns stay attached to the finding. Open the source. Challenge the conclusion.</p></div>
+      <div class="card"><div class="ic">🏡</div><h3>Your computer is home</h3><p>The engine and database run locally. Bring your own Grok key when you want model reviews. No hosted account.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="background:linear-gradient(180deg,transparent,var(--bg2) 30%,var(--bg2) 70%,transparent)">
+  <div class="wrap">
+    <div class="eyebrow mono">// the pipeline</div>
+    <h2>From a post to a <span class="rb">decision.</span></h2>
+    <p class="sub">Every stage is visible and every claim keeps its evidence.</p>
+    <div class="flow">
+      <div class="step"><div class="n mono" style="color:#ff5e9b">01 · OBSERVE</div><h3>Feed</h3><p>The spider reads posts already rendered in your visible tab. No paid X API.</p></div>
+      <div class="step"><div class="n mono" style="color:#ffb35c">02 · CONNECT</div><h3>JEV</h3><p>Our local detector groups repeated topics, tickers and project links into narratives.</p></div>
+      <div class="step"><div class="n mono" style="color:#ffe85c">03 · INVESTIGATE</div><h3>Crawler</h3><p>Reads public sites, repos and docs behind a lead. Private networks are blocked.</p></div>
+      <div class="step"><div class="n mono" style="color:#4dff8a">04 · CHALLENGE</div><h3>4× Grok</h3><p>Optional: four reviewers argue the evidence from different angles, with references.</p></div>
+      <div class="step"><div class="n mono" style="color:#5bd8ff">05 · DECIDE</div><h3>You</h3><p>A dashboard keeps sources, gaps and verdicts together. The call stays yours.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap split">
+    <div>
+      <div class="eyebrow mono">// local first</div>
+      <h2>Runs on your laptop. <span class="rb">Stays there.</span></h2>
+      <ul class="checks">
+        <li>Open source under MIT. Read every line.</li>
+        <li>Engine and database on your own machine.</li>
+        <li>Works without any API key using local rules.</li>
+        <li>Offline queue survives restarts.</li>
+      </ul>
+    </div>
+    <div>
+      <div class="eyebrow mono" style="color:#ff5e8e">// what the spider never does</div>
+      <ul class="checks no">
+        <li>Like, reply or follow on your behalf.</li>
+        <li>Touch or connect a wallet.</li>
+        <li>Leave the page or watch other apps.</li>
+        <li>Send your posts anywhere unless you turn Grok on.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap split">
+    <div>
+      <div class="eyebrow mono">// quick start</div>
+      <h2>Release the spider in <span class="rb">two minutes.</span></h2>
+      <p class="sub">Python 3.11+ and Chrome. macOS, Linux or Windows through WSL2.</p>
+      <ol class="steps">
+        <li>Open <b>127.0.0.1:8787</b>, copy the pairing code in <b>Connections</b>.</li>
+        <li>In <b>chrome://extensions</b> load the <b>extension/</b> folder unpacked.</li>
+        <li>Paste the code in the popup, open X, click <b>Release spider</b>.</li>
+      </ol>
+      <p class="sub" style="font-size:15px;margin-top:18px">No X account at hand? Open <span class="mono">/spider-demo</span> and meet the spider on fictional posts.</p>
+    </div>
+<pre class="mono"><span class="c"># clone and run the local engine</span>
+<span class="p">$</span> git clone https://github.com/h100envy/gem-search.git
+<span class="p">$</span> cd gem-search
+<span class="p">$</span> cp .env.example .env
+<span class="p">$</span> python3 app.py</pre>
+  </div>
+</section>
+
+<footer><div class="wrap">
+  <div>gem<span class="rb">search</span> · open source · MIT · <a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a></div>
+  <div class="disc mono">A RESEARCH COMPANION — NOT A PROMISE OF RETURNS</div>
+</div></footer>
+<div class="toast" id="toast">Copied</div>
+
+<script>
+// ===== token: paste the contract address here =====
+const CA='';
+(()=>{const t=document.getElementById('token'),ca=document.getElementById('ca'),b=document.getElementById('copy');
+  if(!CA){ca.textContent='CA coming soon';b.style.display='none';return}
+  ca.textContent=CA;b.onclick=async()=>{try{await navigator.clipboard.writeText(CA)}catch(e){}
+    const x=document.getElementById('toast');x.classList.add('on');setTimeout(()=>x.classList.remove('on'),1400)}})();
+
+// ===== hero scene =====
+const svg=document.getElementById('scene');
+const R=['#ff2e7e','#ff8a1f','#ffe81f','#4dff6a','#1fffc0','#1fd2ff','#5b6bff','#b84dff'];
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x)), ease=t=>1-Math.pow(1-clamp(t),3);
+const easeBack=t=>{t=clamp(t);const c=1.4;return 1+(c+1)*Math.pow(t-1,3)+c*Math.pow(t-1,2)};
+const prog=(t,a,b)=>clamp((t-a)/(b-a));
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const WC={x:960,y:270};
+
+let web=`<defs>
+${R.map((c,i)=>`<linearGradient id="f${i}" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${c}"/><stop offset="1" stop-color="${R[(i+1)%8]}"/></linearGradient>`).join('')}
+<linearGradient id="spec" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#ff2e7e"/><stop offset=".2" stop-color="#ff8a1f"/><stop offset=".4" stop-color="#ffe81f"/><stop offset=".6" stop-color="#1fffc0"/><stop offset=".8" stop-color="#5b6bff"/><stop offset="1" stop-color="#e05bff"/></linearGradient>
+<linearGradient id="webg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff5ea8"/><stop offset=".35" stop-color="#ffd84d"/><stop offset=".65" stop-color="#3dffd0"/><stop offset="1" stop-color="#8a6bff"/></linearGradient>
+<radialGradient id="bg" cx=".5" cy=".3" r=".75" gradientTransform="translate(.5 .3) scale(.5625 1) translate(-.5 -.3)"><stop stop-color="#2b1170"/><stop offset=".6" stop-color="#120a3a"/><stop offset="1" stop-color="#06041a"/></radialGradient>
+<radialGradient id="core"><stop stop-color="#ff4fd8" stop-opacity=".45"/><stop offset=".5" stop-color="#5b3bff" stop-opacity=".18"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<radialGradient id="head" cx=".4" cy=".35"><stop stop-color="#3a2f6e"/><stop offset="1" stop-color="#0c0a1e"/></radialGradient>
+<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="big" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
+</defs><rect width="1920" height="1080" fill="url(#bg)"/><circle cx="${WC.x}" cy="${WC.y}" r="560" fill="url(#core)"/>`;
+{
+  const sp=20,rings=[110,200,290,380,470,570,680,800,930],rmax=1150;
+  const angs=[...Array(sp)].map((_,i)=>2*Math.PI*i/sp+0.08);
+  let g='',nodes=[];
+  angs.forEach(a=>g+=`<path class="w" d="M${WC.x} ${WC.y}L${(WC.x+rmax*Math.cos(a)).toFixed(1)} ${(WC.y+rmax*Math.sin(a)).toFixed(1)}" pathLength="1"/>`);
+  rings.forEach((r,ri)=>{let d='';angs.forEach((a,i)=>{let b=angs[(i+1)%sp];if(b<a)b+=2*Math.PI;const m=(a+b)/2;
+    const x0=WC.x+r*Math.cos(a),y0=WC.y+r*Math.sin(a),x1=WC.x+r*Math.cos(b),y1=WC.y+r*Math.sin(b),qx=WC.x+r*.9*Math.cos(m),qy=WC.y+r*.9*Math.sin(m);
+    d+=(i?'':`M${x0.toFixed(1)} ${y0.toFixed(1)}`)+`Q${qx.toFixed(1)} ${qy.toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+    if(r>250&&x0>30&&x0<1890&&y0>30&&y0<1050)nodes.push([x0,y0])});
+    g+=`<path class="w" style="animation-delay:${.25+ri*.09}s" d="${d}" pathLength="1"/>`});
+  web+=`<g filter="url(#soft)" stroke="url(#webg)" fill="none" stroke-width="2.2" stroke-opacity=".42">${g}</g>`;
+  let seed=11;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  web+='<g filter="url(#soft)">'+nodes.filter(()=>rnd()<.22).map(([x,y],i)=>{const c=R[i%8],dl=1.4+rnd()*1.6;
+    return `<g class="node" style="animation-delay:${dl.toFixed(2)}s,${(rnd()*2).toFixed(2)}s"><circle cx="${x}" cy="${y}" r="16" fill="${c}" opacity=".4" filter="url(#big)"/><circle cx="${x}" cy="${y}" r="7" fill="#0a0820" stroke="${c}" stroke-width="3"/><circle cx="${x}" cy="${y}" r="2.5" fill="#fff"/></g>`}).join('')+'</g>';
+}
+const st=document.createElement('style');
+st.textContent=`.w{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.3s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.node{opacity:0;animation:nodeIn .4s forwards,blink 2.4s 2s infinite alternate}
+@keyframes nodeIn{to{opacity:1}}@keyframes blink{from{opacity:1}to{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.w{animation:none;stroke-dashoffset:0}.node{animation:none;opacity:1}}`;
+document.head.appendChild(st);
+svg.innerHTML=web+'<g id="spider"></g>';
+const spG=svg.querySelector('#spider');
+
+const L=[[[455,532],[318,362],[205,300]],[[444,560],[268,425],[122,472]],[[447,596],[268,602],[150,728]],[[466,626],[372,700],[300,868]]];
+const LEGS=[...L,...L.map(l=>l.map(([x,y])=>[1000-x,y]))];
+const LC=[R[0],R[1],R[2],R[3],R[7],R[6],R[5],R[4]];
+const rot=([x,y],[ox,oy],a)=>{const c=Math.cos(a),s=Math.sin(a);return[ox+(x-ox)*c-(y-oy)*s,oy+(x-ox)*s+(y-oy)*c]};
+const O=[[500,232],[606,300],[612,430],[500,548],[388,430],[394,300]],C=[500,392];
+const I=O.map(([x,y])=>[C[0]+(x-C[0])*.48,C[1]+(y-C[1])*.48]);
+const pts=a=>a.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' ');
+let gem=`<polygon points="${pts(O)}" fill="#ff4fd8" opacity=".5" filter="url(#big)"/>`;
+for(let i=0;i<6;i++){const a=O[i],b=O[(i+1)%6],ia=I[i],ib=I[(i+1)%6];
+  gem+=`<polygon points="${pts([a,b,ib,ia])}" fill="url(#f${(i+2)%8})"/><polygon points="${pts([ia,ib,C])}" fill="url(#f${(i+5)%8})" opacity=".85"/>`;}
+gem+=`<path d="${O.map((o,i)=>`M${o}L${I[i]}L${C}`).join('')}M${I.map(p=>p.join(' ')).join('L')}Z" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="2.5" stroke-linejoin="round"/><polygon points="${pts(O)}" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><polygon points="420,312 470,282 452,350" fill="#fff" opacity=".55"/>`;
+const headStatic=`<circle cx="500" cy="596" r="70" fill="#ff2e7e" opacity=".35" filter="url(#big)"/><circle cx="500" cy="596" r="66" fill="url(#head)" stroke="url(#spec)" stroke-width="6"/>`;
+function spider(t,wig,blink){
+  let g='',j='';
+  LEGS.forEach((l,i)=>{const side=i<4?1:-1,ph=i*1.3;
+    const a1=wig*Math.sin(t*9+ph)*.12*side,a2=wig*Math.sin(t*9+ph+1.2)*.18*side;
+    const k=rot(l[1],l[0],a1),tip=rot(rot(l[2],l[0],a1),k,a2);
+    g+=`<path d="M${l[0]}L${k}L${tip}" fill="none" stroke="${LC[i]}" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>`;
+    j+=`<circle cx="${k[0]}" cy="${k[1]}" r="10" fill="#0a0820" stroke="${LC[i]}" stroke-width="4"/><circle cx="${k[0]}" cy="${k[1]}" r="3.5" fill="#fff"/><circle cx="${tip[0]}" cy="${tip[1]}" r="7" fill="#fff"/>`});
+  const ey=blink?1-Math.sin(Math.PI*blink)*.92:1;
+  return `<g filter="url(#glow)">${g}</g><g filter="url(#soft)">${j}</g>${gem}${headStatic}<g filter="url(#soft)"><g transform="translate(0 598) scale(1 ${ey}) translate(0 -598)"><circle cx="475" cy="598" r="17" fill="#eafcff"/><circle cx="525" cy="598" r="17" fill="#eafcff"/><circle cx="478" cy="602" r="8.5" fill="#0a0820"/><circle cx="528" cy="602" r="8.5" fill="#0a0820"/><circle cx="481" cy="597" r="3.5" fill="#fff"/><circle cx="531" cy="597" r="3.5" fill="#fff"/></g><circle cx="456" cy="568" r="5.5" fill="#1fffc0"/><circle cx="480" cy="560" r="4.5" fill="#1fd2ff"/><circle cx="520" cy="560" r="4.5" fill="#b84dff"/><circle cx="544" cy="568" r="5.5" fill="#ff2e7e"/><path d="M488 630q12 9 24 0" fill="none" stroke="#ff8ad8" stroke-width="4" stroke-linecap="round"/></g>`;
+}
+const S=.5;
+function frame(t){
+  const d=easeBack(prog(t,.5,3)),cy=-420+(WC.y+420)*d,settle=prog(t,3,3.6);
+  const sway=Math.sin(t*1.6)*1.6*settle+Math.sin(t*5)*4*(1-settle)*clamp(d*3);
+  const wig=1.2*(1-ease(settle))+.25,bob=Math.sin(t*2.2)*4*settle;
+  const bp=(t%7)/7, bl=t>3.5&&bp>.55&&bp<.59?(bp-.55)/.04:0;
+  const top=(232-450)*S;
+  let o=`<path d="M960 0V${cy+bob+top}" stroke="#fff" stroke-opacity=".75" stroke-width="2"/>`;
+  const p=prog(t,2.55,3.65);if(p>0&&p<1)o+=`<circle cx="960" cy="${WC.y}" r="${120+700*ease(p)}" fill="none" stroke="#1fd2ff" stroke-width="${8*(1-p)}" opacity="${1-p}"/>`;
+  o+=`<g transform="translate(960 ${cy+bob}) rotate(${sway} 0 ${top}) scale(${S}) translate(-500 -450)">${spider(t,wig,bl)}</g>`;
+  spG.innerHTML=o;
+}
+if(reduce){frame(5)}else{
+  const t0=performance.now();let last=0;
+  const loop=now=>{if(now-last>=33){last=now;frame((now-t0)/1000)}requestAnimationFrame(loop)};
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
