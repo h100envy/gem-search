@@ -1,11 +1,12 @@
 import { createRequire } from 'node:module';
-import { ComputeBudgetProgram, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { ComputeBudgetProgram, Keypair, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 
 const require = createRequire(import.meta.url);
-const { PUMP_SDK, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = require('@pump-fun/pump-sdk');
+const { PUMP_SDK, OnlinePumpSdk, getBuyTokenAmountFromSolAmount, socialFeePda, Platform } = require('@pump-fun/pump-sdk');
 const BN = require('bn.js');
 
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 /** The most a creator can buy of their own coin in the launch transaction. */
 export const MAX_DEV_BUY_SOL = 5;
 /** Solana's packet limit for one transaction. */
@@ -20,24 +21,41 @@ export async function pumpGlobals(conn) {
   return (globals = { at: Date.now(), global, feeConfig });
 }
 
+/** Where pump.fun keeps creator fees for a GitHub account until its owner claims them in the pump.fun app. */
+export const githubFeeAddress = (githubId) => socialFeePda(String(githubId), Platform.GitHub);
+
 /**
- * The instructions of a pump.fun launch: create_v2, and the creator's first buy when there is one, as pump.fun's own
- * page builds it. The creator pays and owns the coin; nothing here routes fees anywhere else.
+ * The instructions of a pump.fun launch: create_v2, the creator's first buy when there is one, and, when the creator
+ * routes fees to a GitHub account, pump.fun's own fee sharing set in the same transaction: the GitHub account's fee
+ * address (made if it is new), a sharing config, and the split. All of it lands together or not at all.
+ *
+ * `share` is `{ githubId, bps, createAddress }`: the GitHub account gets `bps` of 10 000, the creator the rest.
  */
-export async function launchInstructions(conn, creator, mint, meta, devBuyLamports = 0n, priority = true) {
+export async function launchInstructions(conn, creator, mint, meta, devBuyLamports = 0n, priority = true, share = null) {
+  let create;
   if (devBuyLamports > 0n) {
     const { global, feeConfig } = await pumpGlobals(conn);
     const solAmount = new BN(devBuyLamports.toString());
     // The first buy on a brand-new curve: the token amount is exact; the SOL cap gets 1% of room for rounding.
     const amount = getBuyTokenAmountFromSolAmount({ global, feeConfig, mintSupply: null, bondingCurve: null, amount: solAmount, quoteMint: new PublicKey(SOL_MINT) });
-    const create = await PUMP_SDK.createV2AndBuyInstructions({
+    create = await PUMP_SDK.createV2AndBuyInstructions({
       global, mint, name: meta.name, symbol: meta.symbol, uri: meta.uri, creator, user: creator,
       amount, solAmount: solAmount.muln(101).divn(100), mayhemMode: false,
     });
-    return priority ? [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 75_000 }), ...create] : create;
+  } else {
+    create = [await PUMP_SDK.createV2Instruction({ mint, name: meta.name, symbol: meta.symbol, uri: meta.uri, creator, user: creator, mayhemMode: false })];
   }
-  const create = await PUMP_SDK.createV2Instruction({ mint, name: meta.name, symbol: meta.symbol, uri: meta.uri, creator, user: creator, mayhemMode: false });
-  return priority ? [ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 200_000 }), create] : [create];
+  const fees = [];
+  if (share) {
+    const userId = String(share.githubId);
+    const github = githubFeeAddress(userId);
+    if (share.createAddress) fees.push(await PUMP_SDK.createSocialFeePda({ payer: creator, userId, platform: Platform.GitHub }));
+    fees.push(await PUMP_SDK.createFeeSharingConfig({ creator, mint, pool: null }));
+    const newShareholders = share.bps >= 10_000 ? [{ address: github, shareBps: 10_000 }] : [{ address: creator, shareBps: 10_000 - share.bps }, { address: github, shareBps: share.bps }];
+    fees.push(await PUMP_SDK.updateFeeSharesV2({ authority: creator, mint, currentShareholders: [creator], newShareholders, quoteMint: new PublicKey(SOL_MINT), quoteTokenProgram: TOKEN_PROGRAM }));
+  }
+  const budget = !priority ? [] : devBuyLamports > 0n || share ? [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 75_000 })] : [ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 200_000 })];
+  return [...budget, ...create, ...fees];
 }
 
 export class LaunchError extends Error {
@@ -48,22 +66,57 @@ export class LaunchError extends Error {
 }
 
 /**
- * The unsigned launch transaction: the creator pays, the mint (made in the creator's browser) co-signs. A long name
- * with a dev buy can run past Solana's 1232 bytes; then the priority fee goes (about 45 bytes). An address lookup
- * table, when one is configured, makes room for it again.
+ * The unsigned launch transaction: the creator pays, the mint (made in the creator's browser) co-signs. A launch with
+ * a dev buy or a GitHub split runs close to Solana's 1232 bytes; the lookup table holds the keys every launch shares,
+ * and if it still does not fit, the priority fee goes (about 45 bytes). When a GitHub account's fee address is new and
+ * the launch has no room for making it, it is made by a small transaction of its own (`pre`), sent first; the wallet
+ * signs both at once.
  */
-export async function buildLaunch(conn, { creator, mint, meta, devBuySol = 0, table = null }) {
+export async function buildLaunch(conn, { creator, mint, meta, devBuySol = 0, table = null, share = null }) {
   const lamports = BigInt(Math.round(Math.min(Math.max(devBuySol, 0), MAX_DEV_BUY_SOL) * 1e9));
+  if (share) share = { ...share, createAddress: !(await conn.getAccountInfo(githubFeeAddress(share.githubId), 'confirmed')) };
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
-  let size = 0;
-  for (const priority of [true, false]) {
-    const ixs = await launchInstructions(conn, creator, mint, meta, lamports, priority);
+  const compile = (ixs) => {
     const message = new TransactionMessage({ payerKey: creator, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message(table ? [table] : []);
     const tx = new VersionedTransaction(message);
-    size = tx.serialize().length;
-    if (size <= TX_LIMIT) return { tx, message: Buffer.from(message.serialize()).toString('base64'), lastValidBlockHeight, size, priority };
+    return { tx, message: Buffer.from(message.serialize()).toString('base64'), size: tx.serialize().length };
+  };
+  let size = 0;
+  for (const separate of share?.createAddress ? [false, true] : [false]) {
+    const mainShare = separate ? { ...share, createAddress: false } : share;
+    for (const priority of [true, false]) {
+      const main = compile(await launchInstructions(conn, creator, mint, meta, lamports, priority, mainShare));
+      size = main.size;
+      if (size > TX_LIMIT) continue;
+      const pre = separate ? compile([ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 75_000 }), await PUMP_SDK.createSocialFeePda({ payer: creator, userId: String(share.githubId), platform: Platform.GitHub })]) : null;
+      return { ...main, pre, lastValidBlockHeight, priority };
+    }
   }
   throw new LaunchError(400, `that launch does not fit one transaction (${size} of ${TX_LIMIT} bytes): shorten the name or ticker, or lower the dev buy to 0`);
+}
+
+/**
+ * The keys every launch shares, whoever launches what: found by building launches of every shape for unrelated
+ * creators, mints and GitHub accounts and keeping what appears in all of them. Programs stay out: a transaction must
+ * name the programs it calls directly.
+ */
+export async function sharedLaunchKeys(conn) {
+  const meta = { name: 'X', symbol: 'X', uri: 'https://x' };
+  const shapes = [[0n, null], [100_000_000n, null], [0n, { bps: 5_000 }], [100_000_000n, { bps: 10_000 }]];
+  let common = null;
+  const all = new Set();
+  for (const [lamports, share] of shapes) {
+    for (let i = 0; i < 2; i++) {
+      const s = share && { ...share, githubId: String(1_000_000 + Math.floor(Math.random() * 1e8)), createAddress: true };
+      const ixs = await launchInstructions(conn, Keypair.generate().publicKey, Keypair.generate().publicKey, meta, lamports, true, s);
+      const programs = new Set(ixs.map((x) => x.programId.toBase58()));
+      const keys = new Set(ixs.flatMap((x) => x.keys.map((k) => k.pubkey.toBase58())).filter((k) => !programs.has(k)));
+      // Keys shared by the two launches of one shape; across shapes, the union.
+      if (i === 0) common = keys;
+      else for (const k of common) if (keys.has(k)) all.add(k);
+    }
+  }
+  return [...all].map((k) => new PublicKey(k));
 }
 
 /**
@@ -79,7 +132,7 @@ export function checkSigned(signedBase64, built) {
   }
   if (Buffer.from(tx.message.serialize()).toString('base64') !== built.message) throw new LaunchError(400, 'the transaction was changed after it was built; start the launch again');
   const keys = tx.message.staticAccountKeys;
-  for (const [who, key] of [['your wallet', built.creator], ['the mint', built.mint]]) {
+  for (const [who, key] of [['your wallet', built.creator], ['the mint', built.mint]].filter(([, k]) => k)) {
     const i = keys.findIndex((k) => k.toBase58() === key);
     if (i < 0 || i >= tx.message.header.numRequiredSignatures || tx.signatures[i].every((b) => b === 0)) throw new LaunchError(400, `the transaction is not signed by ${who}`);
   }
@@ -120,6 +173,10 @@ export function parseLaunch(body) {
   const bytes = new Uint8Array(Buffer.from(m[2], 'base64'));
   if (bytes.length > 2_000_000) throw new LaunchError(400, 'image: up to 2 MB');
   if (!imageMatches(m[1], bytes)) throw new LaunchError(400, 'image: the file is not the type it claims to be');
+  const github = str(body.github).replace(/^@/, '');
+  if (github && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(github)) throw new LaunchError(400, 'GitHub: a username like octocat');
+  const githubShare = github ? Number(body.githubShare ?? 100) : 0;
+  if (github && (!Number.isInteger(githubShare) || githubShare < 1 || githubShare > 100)) throw new LaunchError(400, 'GitHub share: 1 to 100 percent');
   let creator, mint;
   try {
     creator = new PublicKey(str(body.creator));
@@ -128,5 +185,5 @@ export function parseLaunch(body) {
     throw new LaunchError(400, 'connect a wallet first');
   }
   if (creator.equals(mint)) throw new LaunchError(400, 'the mint must be a fresh key');
-  return { name, symbol, description, links, devBuySol, image: { contentType: m[1], bytes }, creator, mint };
+  return { name, symbol, description, links, devBuySol, github, githubShare, image: { contentType: m[1], bytes }, creator, mint };
 }
