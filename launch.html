@@ -93,6 +93,22 @@ summary{cursor:pointer;color:var(--muted);font-size:14px;padding:8px 0}
 .ok h3{margin:0 0 6px}.ok .ca{font-size:12.5px;color:var(--muted);word-break:break-all;margin:6px 0 12px}
 .ok .acts{display:flex;gap:8px;flex-wrap:wrap}.ok .acts .btn{padding:9px 14px;font-size:14px}
 
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.seg button{padding:11px;border-radius:12px;border:1px solid var(--line);background:#0a0822;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
+.seg button.on{border-color:var(--cyan);color:var(--text);background:rgba(31,210,255,.08)}
+.seg button:disabled{opacity:.45;cursor:not-allowed}
+#ghbox{margin-top:4px}
+.gh{display:flex;gap:12px;align-items:center;margin-top:10px;padding:10px 12px;border-radius:12px;background:#0a0822;border:1px solid var(--line);font-size:14px;min-height:56px;color:var(--dim)}
+.gh img{width:36px;height:36px;border-radius:50%}
+.gh b{color:var(--text)}
+input[type=range]{width:100%;accent-color:#7a6bff;padding:0;border:0;background:none;margin-top:10px}
+.split{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-top:4px}
+.split b{color:var(--text)}
+.dexrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.dexrow input{flex:1;min-width:240px}
+.badge{font-size:11px;letter-spacing:.06em;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.badge.paid{border-color:rgba(77,255,106,.6);color:var(--green)}
+.dexcard{margin-top:22px}
 .recent{padding:10px 0 70px}
 .recent h2{font-size:28px;letter-spacing:-.02em;margin:0 0 16px}
 .list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
@@ -121,7 +137,7 @@ footer p{margin:0 0 8px;max-width:820px}
     <span class="fact"><b>0%</b> to Gem Search</span>
     <span class="fact">your wallet signs</span>
     <span class="fact">no key leaves your browser</span>
-    <span class="fact">100% of creator fees are yours</span>
+    <span class="fact">fees: yours, or shared with a GitHub dev</span>
   </div>
 </header>
 
@@ -150,6 +166,17 @@ footer p{margin:0 0 8px;max-width:820px}
     <input id="dev" type="number" min="0" max="5" step="0.01" value="0" inputmode="decimal">
     <div class="chips" id="chips"><button class="chip on" data-v="0" type="button">0</button><button class="chip" data-v="0.1" type="button">0.1</button><button class="chip" data-v="0.5" type="button">0.5</button><button class="chip" data-v="1" type="button">1</button><button class="chip" data-v="2" type="button">2</button></div>
     <div class="hint">Buying first protects you from snipers taking the cheapest part of the curve. Up to 5 SOL.</div>
+
+    <label>Creator fees</label>
+    <div class="seg" id="feeseg"><button type="button" class="on" data-m="me">Keep 100%</button><button type="button" data-m="gh" id="ghbtn">Share with GitHub</button></div>
+    <div id="ghbox" hidden>
+      <label for="ghuser">GitHub username</label><input id="ghuser" placeholder="octocat" autocomplete="off" spellcheck="false">
+      <div class="gh" id="ghcard">Type a username to look it up</div>
+      <input type="range" id="ghshare" min="1" max="100" value="100">
+      <div class="split"><span>You <b id="sme">0%</b></span><span>GitHub <b id="sgh">100%</b></span></div>
+      <div class="hint">pump.fun's own fee sharing, set in the launch itself. The GitHub owner claims in the pump.fun app by signing in with GitHub.</div>
+    </div>
+    <div class="hint" id="ghoff" hidden>Sharing fees with GitHub switches on shortly.</div>
   </section>
 
   <aside class="card">
@@ -158,6 +185,7 @@ footer p{margin:0 0 8px;max-width:820px}
     <div class="cost mono">
       <div>Network and pump.fun<b>≈ 0.025 SOL</b></div>
       <div>Dev buy<b id="cdev">0 SOL</b></div>
+      <div>Creator fees<b id="cfee">you 100%</b></div>
       <div>Gem Search fee<b style="color:var(--green)">0</b></div>
     </div>
     <div class="wallet">
@@ -180,10 +208,19 @@ footer p{margin:0 0 8px;max-width:820px}
         <button class="btn ghost" id="okcopy" type="button">Copy CA</button>
         <a class="btn ghost" id="oktx" target="_blank" rel="noopener">Transaction</a>
         <a class="btn ghost" id="okshare" target="_blank" rel="noopener">Share on X</a>
+        <a class="btn ghost" id="okdex" target="_blank" rel="noopener">Pay Dex</a>
       </div>
     </div>
   </aside>
 </main>
+
+<section class="wrap" style="padding-bottom:40px">
+  <div class="card dexcard">
+    <h2>DexScreener profile for any coin</h2>
+    <div class="hint" style="margin-top:-8px">Paid profile: logo, banner, links and description on DexScreener. Paid on DexScreener itself; we open the order with your coin filled in.</div>
+    <div class="dexrow"><input id="dexca" placeholder="Contract address" class="mono" spellcheck="false"><span class="badge" id="dexst">—</span><a class="btn primary" id="dexgo" target="_blank" rel="noopener">Pay Dex</a></div>
+  </div>
+</section>
 
 <section class="wrap recent">
   <h2>Launched with <span class="rb">Gem Search</span></h2>
@@ -199,7 +236,7 @@ footer p{margin:0 0 8px;max-width:820px}
 const API = 'https://api.gemsearch.fun';
 const $ = (id) => document.getElementById(id);
 const W = window.solanaWeb3;
-let image = null, provider = null, wallet = null, busy = false;
+let image = null, provider = null, wallet = null, busy = false, feeMode = 'me', ghLogin = null;
 
 const b64ToBytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const bytesToB64 = (b) => { let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
@@ -213,6 +250,9 @@ function render() {
   $('pdesc').textContent = $('desc').value.trim();
   $('cdev').textContent = (Number.isFinite(dev) ? dev : 0) + ' SOL';
   document.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', Number(c.dataset.v) === dev));
+  const share = Number($('ghshare').value);
+  $('sme').textContent = (100 - share) + '%'; $('sgh').textContent = share + '%';
+  $('cfee').textContent = feeMode === 'gh' && ghLogin ? (share === 100 ? `@${ghLogin} 100%` : `you ${100 - share}% · @${ghLogin} ${share}%`) : 'you 100%';
   $('go').disabled = busy || !wallet;
 }
 ['name', 'symbol', 'desc', 'dev'].forEach((id) => $(id).addEventListener('input', render));
@@ -232,6 +272,58 @@ $('file').addEventListener('change', (e) => takeFile(e.target.files[0]));
 $('drop').addEventListener('dragover', (e) => { e.preventDefault(); $('drop').classList.add('over'); });
 $('drop').addEventListener('dragleave', () => $('drop').classList.remove('over'));
 $('drop').addEventListener('drop', (e) => { e.preventDefault(); $('drop').classList.remove('over'); takeFile(e.dataTransfer.files[0]); });
+
+// --- creator fees to GitHub ---
+$('feeseg').addEventListener('click', (e) => {
+  const m = e.target.dataset?.m; if (!m || e.target.disabled) return;
+  feeMode = m;
+  document.querySelectorAll('#feeseg button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+  $('ghbox').hidden = m !== 'gh'; render();
+});
+$('ghshare').addEventListener('input', render);
+let ghTimer = null;
+$('ghuser').addEventListener('input', () => {
+  clearTimeout(ghTimer); ghLogin = null; render();
+  const u = $('ghuser').value.trim().replace(/^@/, '');
+  if (!u) { $('ghcard').textContent = 'Type a username to look it up'; return; }
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(u)) { $('ghcard').textContent = 'That is not a GitHub username'; return; }
+  $('ghcard').textContent = 'Looking up…';
+  ghTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('https://api.github.com/users/' + encodeURIComponent(u));
+      if (r.status === 404) { $('ghcard').textContent = 'No GitHub account by that name'; return; }
+      const j = await r.json();
+      if (!j.id) throw 0;
+      if ($('ghuser').value.trim().replace(/^@/, '').toLowerCase() !== j.login.toLowerCase()) return;
+      ghLogin = j.login;
+      $('ghcard').innerHTML = `<img src="${esc(j.avatar_url)}&s=72" alt=""><div><b>${esc(j.name || j.login)}</b> <a href="${esc(j.html_url)}" target="_blank" rel="noopener" class="mono">@${esc(j.login)}</a><br>${Number(j.public_repos) || 0} public repos · ${Number(j.followers) || 0} followers</div>`;
+      render();
+    } catch { $('ghcard').textContent = 'GitHub did not answer; you can still launch, the server checks the name'; ghLogin = u; render(); }
+  }, 450);
+});
+
+// --- DexScreener profile ---
+const dexOrder = (mint) => `https://marketplace.dexscreener.com/product/token-info/order?chainId=solana&tokenAddress=${encodeURIComponent(mint)}`;
+async function dexPaid(mint) {
+  try {
+    const j = await (await fetch('https://api.dexscreener.com/orders/v1/solana/' + encodeURIComponent(mint))).json();
+    const o = (j.orders || []).find((x) => x.type === 'tokenProfile');
+    return o ? o.status : null;
+  } catch { return undefined; }
+}
+function dexBadge(el, st) {
+  el.className = 'badge' + (st === 'approved' ? ' paid' : '');
+  el.textContent = st === 'approved' ? 'DEX PAID ✓' : st ? 'DEX ' + String(st).toUpperCase() : st === null ? 'not paid' : '—';
+}
+let dexTimer = null;
+$('dexca').addEventListener('input', () => {
+  clearTimeout(dexTimer);
+  const ca = $('dexca').value.trim();
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)) { dexBadge($('dexst'), undefined); $('dexgo').removeAttribute('href'); return; }
+  $('dexgo').href = dexOrder(ca);
+  dexTimer = setTimeout(async () => dexBadge($('dexst'), await dexPaid(ca)), 300);
+});
+$('dexgo').addEventListener('click', (e) => { if (!$('dexgo').href) { e.preventDefault(); fail('Paste a contract address first.'); } });
 
 // --- wallet ---
 function findProvider() {
@@ -272,21 +364,27 @@ $('go').addEventListener('click', async () => {
   if (name.length < 2) return fail('Give the coin a name.');
   if (!/^[A-Z0-9]{2,10}$/.test(symbol)) return fail('Ticker: 2 to 10 letters or digits.');
   if (!Number.isFinite(dev) || dev < 0 || dev > 5) return fail('Dev buy: 0 to 5 SOL.');
+  if (feeMode === 'gh' && !$('ghuser').value.trim()) return fail('Type the GitHub username that gets the fees, or keep 100%.');
   if (!W) return fail('The page did not finish loading; refresh and try again.');
   busy = true; render(); $('ok').style.display = 'none';
   // The coin's address is made here, in your browser; only its public half is sent anywhere.
   const mint = W.Keypair.generate();
   try {
     step('ipfs');
-    const prep = await api('/v1/prepare', { name, symbol, description: $('desc').value.trim(), image, website: $('website').value.trim(), twitter: $('twitter').value.trim(), telegram: $('telegram').value.trim(), devBuySol: dev, creator: wallet, mint: mint.publicKey.toBase58() });
+    const prep = await api('/v1/prepare', { name, symbol, description: $('desc').value.trim(), image, website: $('website').value.trim(), twitter: $('twitter').value.trim(), telegram: $('telegram').value.trim(), devBuySol: dev, github: feeMode === 'gh' ? $('ghuser').value.trim() : '', githubShare: Number($('ghshare').value), creator: wallet, mint: mint.publicKey.toBase58() });
     const tx = W.VersionedTransaction.deserialize(b64ToBytes(prep.tx));
     // The mint signs first; the wallet then signs exactly this transaction.
     tx.sign([mint]);
     step('sign');
-    let signed;
-    try { signed = await provider.signTransaction(tx); } catch { throw new Error('You cancelled the signature. Nothing was sent.'); }
+    // A new GitHub fee address comes as a small transaction of its own; the wallet signs both at once.
+    const pre = prep.pre ? W.VersionedTransaction.deserialize(b64ToBytes(prep.pre)) : null;
+    let signed, signedPre = null;
+    try {
+      if (pre && provider.signAllTransactions) [signedPre, signed] = await provider.signAllTransactions([pre, tx]);
+      else { if (pre) signedPre = await provider.signTransaction(pre); signed = await provider.signTransaction(tx); }
+    } catch { throw new Error('You cancelled the signature. Nothing was sent.'); }
     step('send');
-    let r = await api('/v1/submit', { id: prep.id, signed: bytesToB64(signed.serialize()) });
+    let r = await api('/v1/submit', { id: prep.id, signed: bytesToB64(signed.serialize()), signedPre: signedPre ? bytesToB64(signedPre.serialize()) : undefined });
     for (let i = 0; r.status === 'pending' && i < 20; i++) { await new Promise((ok) => setTimeout(ok, 3000)); r = { ...r, ...(await api('/v1/status/' + r.signature)) }; }
     if (r.status !== 'live') throw new Error(r.status === 'failed' ? 'The launch failed on chain. Nothing was created.' : 'Still confirming. Check the transaction link in a minute: ' + r.signature);
     step('live');
@@ -305,6 +403,7 @@ function done(mint, sig, name, symbol) {
   $('oktx').href = 'https://solscan.io/tx/' + sig;
   $('okshare').href = 'https://x.com/intent/post?text=' + encodeURIComponent(`I just launched $${symbol} on pump.fun with @gemsearchfun 🕷️\n\nCA: ${mint}\n\ngemsearch.fun/launch`);
   $('okcopy').onclick = async () => { try { await navigator.clipboard.writeText(mint); $('okcopy').textContent = 'Copied'; } catch {} };
+  $('okdex').href = dexOrder(mint);
   $('ok').style.display = 'block';
 }
 
@@ -312,11 +411,13 @@ async function loadRecent() {
   try {
     const rows = await api('/v1/recent');
     if (!rows.length) return;
-    $('list').innerHTML = rows.map((c) => `<a class="coin" href="https://pump.fun/coin/${encodeURIComponent(c.mint)}" target="_blank" rel="noopener"><img src="${esc(c.image)}" alt="" loading="lazy"><div><b>${esc(c.name)}</b><span class="mono">$${esc(c.symbol)}</span></div></a>`).join('');
+    $('list').innerHTML = rows.map((c, i) => `<a class="coin" href="https://pump.fun/coin/${encodeURIComponent(c.mint)}" target="_blank" rel="noopener"><img src="${esc(c.image)}" alt="" loading="lazy"><div><b>${esc(c.name)}</b><span class="mono">$${esc(c.symbol)}</span>${c.github ? ` <span class="badge">🐙 ${esc(c.github.login)}</span>` : ''} <span class="badge" id="dx${i}" hidden></span></div></a>`).join('');
+    rows.forEach(async (c, i) => { const st = await dexPaid(c.mint); if (st === 'approved') { const el = $('dx' + i); el.hidden = false; dexBadge(el, st); } });
   } catch {}
 }
 render();
 loadRecent();
+fetch(API + '/health').then((r) => r.json()).then((h) => { if (!h.github) { $('ghbtn').disabled = true; $('ghoff').hidden = false; } }).catch(() => {});
 </script>
 </body>
 </html>
