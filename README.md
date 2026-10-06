@@ -34,7 +34,7 @@ The spider finds the narrative. Now you can launch on it without leaving the sit
 | **Everything pump.fun asks for** | Image, name, ticker, description, website, X and Telegram |
 | **Dev buy** | Your first buy in the same transaction, up to 5 SOL, before snipers get the cheapest part of the curve |
 | **Creator fees to a GitHub dev** | Send 1 to 100% of creator fees to any GitHub account, the rest stays yours. The split is pump.fun's own fee sharing, set inside the launch transaction; the developer claims in the pump.fun app by signing in with GitHub |
-| **Pay Dex** | After launch, one button opens the DexScreener profile order with your coin filled in. The page also shows whether any coin's Dex profile is paid |
+| **Pay Dex** | After launch, one button opens DexScreener's own profile order with your coin filled in; you pay DexScreener directly, Gem Search never handles that payment. The page also shows whether any coin's Dex profile is paid |
 | **0% to Gem Search** | No platform fee, no cut of creator fees |
 
 **How it stays safe.** The coin's mint key is made in your browser and never leaves it. The launch server stores the image and metadata on IPFS, builds the pump.fun transaction with you as payer and owner, and sends it only if what your wallet signed is byte for byte what it built. It holds no key of yours and has no database. The server is open source in [`launchpad/`](https://github.com/h100envy/gem-search/tree/launchpad/launchpad) on the `launchpad` branch, with tests and a mainnet simulation that spends nothing.
