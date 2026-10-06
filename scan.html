@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token scanner — Gem Search</title>
+<meta name="description" content="Paste a Solana contract address and see what the spider sees: mint and freeze authority, holders, the dev wallet and their past launches, liquidity, Dex profile, ticker clones. Free, no wallet.">
+<meta property="og:title" content="Check before you ape — Gem Search scanner">
+<meta property="og:description" content="Paste a Solana CA. Get every check, with the reason. Free, no wallet, nothing to install.">
+<meta property="og:image" content="og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@gemsearchfun">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#06041a; --card:#130f38; --line:#2a2560; --text:#f4f0ff; --muted:#b9b3e0; --dim:#7d78a8;
+  --green:#4dff6a; --cyan:#1fd2ff; --yellow:#ffe81f; --red:#ff5e8e;
+  --rainbow:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#2b1170 0%,#120a3a 45%,var(--bg) 80%) no-repeat,var(--bg);color:var(--text);font-family:"Space Grotesk",system-ui,-apple-system,Arial,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+a{color:inherit}
+.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.rb{background:var(--rainbow);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);background:rgba(6,4,26,.6);border-bottom:1px solid rgba(255,255,255,.06)}
+nav .wrap{display:flex;align-items:center;gap:20px;height:64px;max-width:1120px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;font-size:20px;letter-spacing:-.5px}
+.logo img{width:34px;height:34px;border-radius:50%}
+nav .links{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:999px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid transparent;cursor:pointer;font-family:inherit;transition:transform .15s,opacity .15s;white-space:nowrap}
+.btn:hover{transform:translateY(-1px)}
+.btn:disabled{opacity:.5;cursor:wait;transform:none}
+.btn.primary{background:var(--rainbow);color:#0a0820}
+.btn.ghost{border-color:rgba(255,255,255,.22);color:var(--text);background:rgba(255,255,255,.04)}
+nav .btn{padding:8px 16px}
+nav .xbtn{padding:8px 11px}
+@media (max-width:520px){nav .btn{padding:7px 12px;font-size:14px}nav .xbtn{padding:7px 9px}nav .hide-m{display:none}}
+
+header{text-align:center;padding:56px 0 26px}
+h1{font-size:clamp(38px,6vw,66px);line-height:1.02;letter-spacing:-.04em;margin:0 0 12px}
+header p{color:var(--muted);font-size:18px;max-width:600px;margin:0 auto}
+form{display:flex;gap:10px;max-width:760px;margin:26px auto 0}
+form input{flex:1;min-width:0;background:#0a0822;border:1px solid var(--line);border-radius:999px;padding:15px 22px;color:var(--text);font:15px "JetBrains Mono",Menlo,monospace;outline:none}
+form input:focus{border-color:#7a6bff}
+@media (max-width:620px){form{flex-direction:column}}
+.examples{margin-top:12px;font-size:13px;color:var(--dim)}
+.examples button{background:none;border:0;color:var(--cyan);font:inherit;cursor:pointer;padding:0 4px}
+
+.err{max-width:760px;margin:18px auto 0;padding:12px 16px;border-radius:12px;background:rgba(255,94,142,.1);border:1px solid rgba(255,94,142,.5);color:#ffd0dd;font-size:14px;display:none}
+.loading{text-align:center;color:var(--muted);margin:34px 0;display:none}
+.loading i{display:inline-block;width:18px;height:18px;border-radius:50%;border:2px solid var(--cyan);border-top-color:transparent;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#out{display:none;padding:26px 0 70px}
+.card{background:linear-gradient(180deg,rgba(19,15,56,.92),rgba(12,9,40,.92));border:1px solid var(--line);border-radius:22px;padding:24px;position:relative}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:22px 22px 0 0;background:var(--rainbow);opacity:.85}
+.head{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.coinimg{width:84px;height:84px;border-radius:20px;background:#0a0822 center/cover no-repeat;border:1px solid var(--line);flex:none;display:grid;place-items:center;font-size:34px}
+.title{flex:1;min-width:200px}
+.title .n{font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1;word-break:break-word}
+.title .s{color:var(--cyan);font-size:16px}
+.title .ca{font-size:12.5px;color:var(--dim);word-break:break-all;margin-top:6px;cursor:pointer}
+.ring{width:120px;height:120px;flex:none;position:relative}
+.ring svg{transform:rotate(-90deg)}
+.ring .v{position:absolute;inset:0;display:grid;place-items:center;text-align:center;line-height:1}
+.ring .v b{font-size:36px}.ring .v small{display:block;font-size:12px;color:var(--dim);margin-top:4px;letter-spacing:.08em}
+.tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.tag{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.tag.g{border-color:rgba(77,255,106,.55);color:var(--green)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px}
+@media (max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:#0a0822;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.stat small{display:block;color:var(--dim);font-size:12px;letter-spacing:.04em}.stat b{font-size:18px}
+.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-top:18px}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+h2{font-size:18px;margin:0 0 12px}
+.check{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid rgba(255,255,255,.06)}
+.check:first-of-type{border-top:0}
+.ic{width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:14px;font-weight:700}
+.pass .ic{background:rgba(77,255,106,.14);color:var(--green)}
+.warn .ic{background:rgba(255,232,31,.14);color:var(--yellow)}
+.fail .ic{background:rgba(255,94,142,.16);color:var(--red)}
+.unknown .ic,.info .ic{background:rgba(255,255,255,.07);color:var(--dim)}
+.check b{display:block;font-size:15px}.check span{color:var(--muted);font-size:14px}
+.holder{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;margin:9px 0;font-size:13px}
+.holder .bar{grid-column:1/-1;height:6px;border-radius:3px;background:#0a0822;overflow:hidden}
+.holder .bar i{display:block;height:100%;background:var(--rainbow)}
+.holder .who{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.holder .lbl{color:var(--cyan)}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.acts .btn{padding:10px 16px;font-size:14px}
+.note{font-size:13px;color:var(--dim);margin-top:16px}
+footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px}
+footer p{margin:0 0 8px;max-width:820px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(30px);opacity:0;background:#1a1450;border:1px solid var(--line);padding:10px 18px;border-radius:12px;transition:.25s;font-size:14px}
+.toast.on{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="logo" href="./"><img src="avatar.png" alt=""><span>gem<span class="rb">search</span></span></a>
+  <div class="links">
+    <a class="btn ghost" href="launch">Launch</a>
+    <a class="btn ghost xbtn" href="https://x.com/gemsearchfun" target="_blank" rel="noopener" aria-label="Gem Search on X"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2Zm-1.1 18.1h1.7L6.3 3.8H4.5l13.3 16.3Z"/></svg></a>
+    <a class="btn ghost hide-m" href="./">Home</a>
+  </div>
+</div></nav>
+
+<header class="wrap">
+  <h1>Check before you <span class="rb">ape.</span></h1>
+  <p>Paste a Solana contract address. The spider reads the chain and shows every check with its reason. Free, no wallet.</p>
+  <form id="f" autocomplete="off">
+    <input id="ca" placeholder="Paste a contract address" spellcheck="false" aria-label="Contract address">
+    <button class="btn primary" id="go" type="submit">Scan</button>
+  </form>
+  <div class="examples">Try: <button type="button" data-ca="GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump">$GEMSEARCH</button></div>
+  <div class="err" id="err"></div>
+  <div class="loading" id="loading"><i></i>Reading mint, holders, dev wallet, pools…</div>
+</header>
+
+<main class="wrap" id="out">
+  <section class="card">
+    <div class="head">
+      <div class="coinimg" id="img">🕷️</div>
+      <div class="title"><div class="n" id="name"></div><div class="s mono" id="sym"></div><div class="ca mono" id="cashow" title="Copy"></div></div>
+      <div class="ring"><svg width="120" height="120" viewBox="0 0 120 120"><defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff2e7e"/><stop offset=".35" stop-color="#ffe81f"/><stop offset=".65" stop-color="#4dff6a"/><stop offset="1" stop-color="#5b6bff"/></linearGradient></defs><circle cx="60" cy="60" r="50" fill="none" stroke="#1d1850" stroke-width="12"/><circle id="arc" cx="60" cy="60" r="50" fill="none" stroke="url(#rg)" stroke-width="12" stroke-linecap="round" stroke-dasharray="314.16" stroke-dashoffset="314.16" style="transition:stroke-dashoffset .9s cubic-bezier(.2,.7,.3,1)"/></svg><div class="v"><div><b id="score">–</b><small>/ 100</small></div></div></div>
+    </div>
+    <div class="tags" id="tags"></div>
+    <div class="stats" id="stats"></div>
+    <div class="acts" id="acts"></div>
+  </section>
+  <div class="grid">
+    <section class="card"><h2>Checks</h2><div id="checks"></div><div class="note" id="note"></div></section>
+    <section class="card"><h2>Top holders</h2><div id="holders"></div><div class="note">The pump.fun curve and pools are named; the top 10 check leaves them out.</div></section>
+  </div>
+</main>
+
+<footer><div class="wrap">
+  <p>The score adds up red flags that can be read on chain right now. A high score means the launch is clean, not that the coin will go up. Anything the scanner could not read is shown as unknown and never counts as a pass. Not financial advice.</p>
+  <p class="mono">Open source: <a href="https://github.com/h100envy/gem-search/tree/launchpad/launchpad" target="_blank" rel="noopener">github.com/h100envy/gem-search</a></p>
+</div></footer>
+<div class="toast" id="toast">Copied</div>
+
+<script>
+const API = 'https://api.gemsearch.fun';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = (n) => n == null ? '—' : '$' + (n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : Math.round(n));
+const age = (h) => h == null ? '—' : h < 1 ? Math.round(h * 60) + 'm' : h < 48 ? Math.round(h) + 'h' : Math.round(h / 24) + 'd';
+const short = (a) => a ? a.slice(0, 4) + '…' + a.slice(-4) : '';
+const ICON = { pass: '✓', warn: '!', fail: '✕', unknown: '?', info: 'i' };
+let last = null;
+
+function toast(t) { const x = $('toast'); x.textContent = t; x.classList.add('on'); setTimeout(() => x.classList.remove('on'), 1400); }
+function fail(m) { $('err').textContent = m; $('err').style.display = 'block'; }
+
+async function run(ca) {
+  ca = ca.trim();
+  $('err').style.display = 'none';
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)) return fail('That does not look like a Solana address.');
+  $('go').disabled = true; $('loading').style.display = 'block'; $('out').style.display = 'none';
+  history.replaceState(null, '', '?ca=' + ca);
+  try {
+    const res = await fetch(API + '/v1/scan/' + encodeURIComponent(ca));
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(r.error || 'The scanner did not answer; try again in a minute.');
+    show(r);
+  } catch (e) { fail(e.message); } finally { $('go').disabled = false; $('loading').style.display = 'none'; }
+}
+
+function show(r) {
+  last = r;
+  const img = $('img');
+  if (r.image) { img.style.backgroundImage = `url("${encodeURI(r.image)}")`; img.textContent = ''; } else { img.style.backgroundImage = ''; img.textContent = '🕷️'; }
+  $('name').textContent = r.name || 'Unnamed token';
+  $('sym').textContent = r.symbol ? '$' + r.symbol : '';
+  $('cashow').textContent = r.mint;
+  $('score').textContent = r.score;
+  requestAnimationFrame(() => $('arc').style.strokeDashoffset = String(314.16 * (1 - r.score / 100)));
+  const tags = [];
+  if (r.pump) tags.push(r.graduated ? '<span class="tag g">graduated from pump.fun</span>' : `<span class="tag">on the pump.fun curve${r.progress != null ? ' · ' + r.progress + '%' : ''}</span>`);
+  if (r.checks.find((c) => c.id === 'dex' && c.status === 'pass')) tags.push('<span class="tag g">DEX PAID ✓</span>');
+  if (r.creator) tags.push(`<span class="tag mono">dev ${esc(short(r.creator))}</span>`);
+  if (r.feeSplit) tags.push(`<span class="tag">creator fees split ${r.feeSplit.length} way${r.feeSplit.length > 1 ? 's' : ''}</span>`);
+  if (r.unknown) tags.push(`<span class="tag">${r.unknown} check${r.unknown > 1 ? 's' : ''} unknown</span>`);
+  $('tags').innerHTML = tags.join('');
+  const m = r.market || {};
+  $('stats').innerHTML = [['Market cap', money(m.marketCap)], ['Liquidity', money(m.liquidityUsd)], ['Volume 24h', money(m.volume24h)], ['Age', age(m.ageHours)]].map(([k, v]) => `<div class="stat"><small>${k}</small><b class="mono">${v}</b></div>`).join('');
+  $('checks').innerHTML = r.checks.map((c) => `<div class="check ${esc(c.status)}"><div class="ic">${ICON[c.status] || '?'}</div><div><b>${esc(c.label)}</b><span>${esc(c.detail)}</span></div></div>`).join('');
+  $('note').textContent = r.unknown ? 'Unknown checks are not counted as passed. Scan again in a minute if a source was busy.' : '';
+  $('holders').innerHTML = r.holders && r.holders.length ? r.holders.map((h) => `<div class="holder"><span class="who mono">${h.label ? `<span class="lbl">${esc(h.label)}</span>` : esc(short(h.owner))}</span><b class="mono">${h.share}%</b><div class="bar"><i style="width:${Math.min(100, h.share)}%"></i></div></div>`).join('') : '<div class="note">Could not read the largest holders.</div>';
+  const acts = [];
+  if (r.pump) acts.push(`<a class="btn ghost" href="https://pump.fun/coin/${encodeURIComponent(r.mint)}" target="_blank" rel="noopener">pump.fun</a>`);
+  if (m.url) acts.push(`<a class="btn ghost" href="${esc(m.url)}" target="_blank" rel="noopener">DexScreener</a>`);
+  acts.push(`<a class="btn ghost" href="https://solscan.io/token/${encodeURIComponent(r.mint)}" target="_blank" rel="noopener">Solscan</a>`);
+  if (!r.checks.find((c) => c.id === 'dex' && c.status === 'pass')) acts.push(`<a class="btn ghost" href="https://marketplace.dexscreener.com/product/token-info/order?chainId=solana&tokenAddress=${encodeURIComponent(r.mint)}" target="_blank" rel="noopener">Pay Dex</a>`);
+  acts.push(`<button class="btn primary" id="share" type="button">Share on X</button><button class="btn ghost" id="card" type="button">Download card</button>`);
+  $('acts').innerHTML = acts.join('');
+  $('share').onclick = () => window.open('https://x.com/intent/post?text=' + encodeURIComponent(`Scanned ${r.symbol ? '$' + r.symbol : 'this coin'} with @gemsearchfun 🕷️\n\nScore ${r.score}/100\n${r.checks.filter((c) => c.status === 'pass').length} passed · ${r.checks.filter((c) => c.status === 'warn' || c.status === 'fail').length} flagged\n\ngemsearch.fun/scan?ca=${r.mint}`), '_blank', 'noopener');
+  $('card').onclick = () => drawCard(r);
+  $('out').style.display = 'block';
+  $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// A shareable 1200×675 card, drawn in the browser.
+async function drawCard(r) {
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 675;
+  const g = c.getContext('2d');
+  const bg = g.createRadialGradient(600, 120, 50, 600, 300, 800); bg.addColorStop(0, '#2b1170'); bg.addColorStop(.55, '#120a3a'); bg.addColorStop(1, '#06041a');
+  g.fillStyle = bg; g.fillRect(0, 0, 1200, 675);
+  const rb = (x0, x1) => { const l = g.createLinearGradient(x0, 0, x1, 0); ['#ff2e7e', '#ff8a1f', '#ffe81f', '#4dff6a', '#1fd2ff', '#5b6bff', '#b84dff'].forEach((col, i) => l.addColorStop(i / 6, col)); return l; };
+  g.fillStyle = rb(0, 1200); g.fillRect(0, 0, 1200, 8); g.fillRect(0, 667, 1200, 8);
+  g.font = '600 22px Menlo, monospace'; g.fillStyle = '#9fe9ff'; g.fillText('GEM SEARCH · TOKEN SCAN', 64, 72);
+  let x = 64;
+  if (r.image) {
+    try {
+      const im = new Image(); im.crossOrigin = 'anonymous'; im.src = r.image;
+      await new Promise((ok, no) => { im.onload = ok; im.onerror = no; setTimeout(no, 4000); });
+      g.save(); g.beginPath(); g.roundRect(64, 104, 120, 120, 26); g.clip(); g.drawImage(im, 64, 104, 120, 120); g.restore(); x = 210;
+    } catch {}
+  }
+  g.fillStyle = '#ffffff'; g.font = '700 54px Arial, sans-serif'; g.fillText((r.name || 'Unnamed token').slice(0, 26), x, 160);
+  g.fillStyle = '#1fd2ff'; g.font = '600 30px Menlo, monospace'; g.fillText(r.symbol ? '$' + r.symbol : '', x, 206);
+  // score ring
+  g.lineWidth = 22; g.strokeStyle = '#1d1850'; g.beginPath(); g.arc(1010, 180, 92, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = rb(900, 1120); g.lineCap = 'round'; g.beginPath(); g.arc(1010, 180, 92, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * r.score / 100); g.stroke();
+  g.fillStyle = '#fff'; g.font = '800 64px Arial, sans-serif'; g.textAlign = 'center'; g.fillText(String(r.score), 1010, 196); g.font = '600 18px Menlo, monospace'; g.fillStyle = '#8d88b8'; g.fillText('/ 100', 1010, 228); g.textAlign = 'left';
+  const col = { pass: '#4dff6a', warn: '#ffe81f', fail: '#ff5e8e', unknown: '#8d88b8', info: '#8d88b8' };
+  // Flags first, so a card never hides what went wrong.
+  const rank = { fail: 0, warn: 1, unknown: 2, pass: 3, info: 4 };
+  const fit = (t, w) => { if (g.measureText(t).width <= w) return t; while (t && g.measureText(t + '…').width > w) t = t.slice(0, -1); return t + '…'; };
+  [...r.checks].sort((a, b) => rank[a.status] - rank[b.status]).slice(0, 8).forEach((ch, i) => {
+    const cx = i < 4 ? 64 : 620, cy = 330 + (i % 4) * 66;
+    g.fillStyle = col[ch.status]; g.beginPath(); g.arc(cx + 14, cy - 9, 14, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#06041a'; g.font = '800 17px Arial'; g.textAlign = 'center'; g.fillText(ICON[ch.status], cx + 14, cy - 3); g.textAlign = 'left';
+    g.fillStyle = '#fff'; g.font = '700 23px Arial, sans-serif'; g.fillText(ch.label, cx + 42, cy - 4);
+    g.fillStyle = '#b9b3e0'; g.font = '19px Arial, sans-serif'; g.fillText(fit(ch.detail, 470), cx + 42, cy + 22);
+  });
+  g.fillStyle = '#8d88b8'; g.font = '600 20px Menlo, monospace'; g.fillText(r.mint, 64, 632);
+  g.textAlign = 'right'; g.fillStyle = '#fff'; g.font = '700 22px Menlo, monospace'; g.fillText('gemsearch.fun/scan', 1136, 632); g.textAlign = 'left';
+  c.toBlob((b) => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `gemsearch-scan-${(r.symbol || r.mint.slice(0, 6)).toLowerCase()}.png`; a.click(); });
+}
+
+$('f').addEventListener('submit', (e) => { e.preventDefault(); run($('ca').value); });
+$('ca').addEventListener('paste', () => setTimeout(() => run($('ca').value), 0));
+document.querySelectorAll('[data-ca]').forEach((b) => b.addEventListener('click', () => { $('ca').value = b.dataset.ca; run(b.dataset.ca); }));
+$('cashow').addEventListener('click', async () => { try { await navigator.clipboard.writeText(last.mint); toast('Copied'); } catch {} });
+const q = new URLSearchParams(location.search).get('ca');
+if (q) { $('ca').value = q; run(q); }
+</script>
+</body>
+</html>
