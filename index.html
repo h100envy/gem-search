@@ -61,6 +61,10 @@ h1{font-size:clamp(44px,8vw,104px);line-height:1;margin:18px 0 14px;letter-spaci
 .token{margin:26px auto 0;display:inline-flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;padding:10px 12px 10px 20px;border-radius:16px;background:rgba(19,15,56,.85);border:1px solid var(--line)}
 .token b{font-size:20px}
 .token .ca{font-size:13px;color:var(--muted);max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.token .buy{padding:9px 18px;font-family:"Space Grotesk",system-ui,sans-serif}
+.token .chart{font-size:13px;color:var(--muted);text-decoration:none;padding:0 6px}
+.token .chart:hover{color:var(--text)}
+@media (max-width:520px){.token .ca{max-width:70vw}}
 .token button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:var(--text);border-radius:10px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer}
 
 /* sections */
@@ -112,6 +116,7 @@ footer .disc{letter-spacing:.14em;font-size:12px}
     <a href="#how">How it works</a>
     <a href="#start">Quick start</a>
     <a class="btn ghost" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a>
+    <a class="btn primary" href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Buy</a>
   </div>
 </div></nav>
 
@@ -130,6 +135,8 @@ footer .disc{letter-spacing:.14em;font-size:12px}
       <b class="rb">$GEMSEARCH</b>
       <span class="ca" id="ca"></span>
       <button id="copy" type="button">Copy CA</button>
+      <a class="btn primary buy" href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Buy $GEMSEARCH</a>
+      <a class="chart" href="https://dexscreener.com/solana/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Chart ↗</a>
     </div>
   </div>
 </header>
@@ -215,7 +222,7 @@ footer .disc{letter-spacing:.14em;font-size:12px}
 
 <script>
 // ===== token: paste the contract address here =====
-const CA='';
+const CA='GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump';
 (()=>{const t=document.getElementById('token'),ca=document.getElementById('ca'),b=document.getElementById('copy');
   if(!CA){ca.textContent='CA coming soon';b.style.display='none';return}
   ca.textContent=CA;b.onclick=async()=>{try{await navigator.clipboard.writeText(CA)}catch(e){}
