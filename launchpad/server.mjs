@@ -6,6 +6,7 @@ import bs58 from 'bs58';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
 import { scanToken } from './scan.mjs';
+import { xrayToken } from './xray.mjs';
 
 /**
  * gemsearch.fun's launchpad API. The page makes the coin's mint key and the creator's wallet signs; this server only
@@ -175,6 +176,28 @@ async function scan(req, mint) {
   }
 }
 
+/** X-rays read a few dozen wallets each, so they are kept five minutes and rationed harder than scans. */
+const xrays = new Map();
+async function xray(req, mint) {
+  if (!conn) throw new LaunchError(503, 'the X-ray is not switched on yet');
+  const hit = xrays.get(mint);
+  if (hit?.value && Date.now() - hit.at < 300_000) return hit.value;
+  if (hit?.pending) return hit.pending;
+  limit(`xray:${req.ip}`, 6, 60_000, 'too many X-rays from here; wait a minute');
+  limit('xray:all', 120, 3_600_000, 'the X-ray is busy; try again in a few minutes');
+  const pending = xrayToken(conn, RPC, mint);
+  xrays.set(mint, { pending });
+  try {
+    const value = await pending;
+    xrays.set(mint, { at: Date.now(), value });
+    if (xrays.size > 500) xrays.delete(xrays.keys().next().value);
+    return value;
+  } catch (err) {
+    xrays.delete(mint);
+    throw err;
+  }
+}
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -225,6 +248,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/xray/')) return send(200, await xray(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/scan/')) return send(200, await scan(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'POST' && url.pathname === '/v1/prepare') return send(200, await prepare(req, await readJson(req, 3_000_000)));
     if (req.method === 'POST' && url.pathname === '/v1/submit') return send(200, await submit(await readJson(req, 40_000)));
