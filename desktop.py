@@ -194,7 +194,7 @@ class DesktopWindow(QMainWindow):
         self.persist_session()
         tokens = self.store.tokens()
         query = self.search.text().lower()
-        values = lambda r: [r['name'], r['chain'], r['address'], money(r.get('market_cap_usd')), money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at')), stamp(r.get('first_seen'))]
+        values = lambda r: [r['name'], r['chain'], r['address'], (money(r.get('market_cap_usd')) + '\n' + r.get('market_cap_source', 'Saved sample') + ' · ' + stamp(r.get('market_cap_updated_at'))) if r.get('market_cap_usd') is not None else 'Not reported by providers', money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at')), stamp(r.get('first_seen'))]
         self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
         watched = set(self.store.watchlist())
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)

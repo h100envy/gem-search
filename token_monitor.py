@@ -41,6 +41,31 @@ def net_swaps(trades, captured):
     return total
 
 
+def dex_market_caps(network, addresses):
+    chain = {'eth': 'ethereum', 'polygon_pos': 'polygon', 'avax': 'avalanche'}.get(network, network)
+    url = 'https://api.dexscreener.com/tokens/v1/' + quote(chain, safe='') + '/' + ','.join(quote(address, safe='') for address in addresses[:30])
+    with urlopen(Request(url, headers={'Accept': 'application/json', 'User-Agent': 'GemSearch/0.4.1'}), timeout=8) as response:
+        raw = response.read(2000001)
+    if len(raw) > 2000000:
+        raise ValueError('Response exceeds limit')
+    return select_market_caps(json.loads(raw), chain, addresses)
+
+
+def select_market_caps(pairs, chain, addresses):
+    selected = {}
+    for pair in pairs:
+        address = pair.get('baseToken', {}).get('address')
+        cap = pair.get('marketCap')
+        if pair.get('chainId') != chain or address not in addresses or type(cap) not in (int, float) or not math.isfinite(cap) or cap <= 0:
+            continue
+        liquidity = (pair.get('liquidity') or {}).get('usd') or 0
+        if type(liquidity) not in (int, float) or not math.isfinite(liquidity):
+            liquidity = 0
+        if address not in selected or liquidity > selected[address][0]:
+            selected[address] = (liquidity, {'market_cap_usd': cap, 'market_cap_source': 'DexScreener', 'market_cap_updated_at': time.time()})
+    return {address: fields for address, (_, fields) in selected.items()}
+
+
 class TokenMonitor:
     def __init__(self, alerts, observer=None, watchlist=None):
         self.alerts = alerts
@@ -82,6 +107,7 @@ class TokenMonitor:
         try:
             pools = get_json('networks/new_pools?include=base_token,network')['data']
             candidates = {}
+            missing_caps = {}
             for pool in pools[:20]:
                 attr = pool['attributes']
                 volume = float(attr.get('volume_usd', {}).get('m5', 0))
@@ -89,11 +115,32 @@ class TokenMonitor:
                 token_id = pool['relationships']['base_token']['data']['id']
                 address = token_id.removeprefix(network + '_')
                 if self.observer:
-                    self.observer(network, address, {'name': attr.get('name', address).split(' / ')[0], 'price_usd': attr.get('base_token_price_usd'), 'market_cap_usd': attr.get('market_cap_usd'), 'volume_m5_usd': volume, 'pool_created_at': attr.get('pool_created_at'), 'updated_at': time.time()})
+                    fields = {'name': attr.get('name', address).split(' / ')[0], 'price_usd': attr.get('base_token_price_usd'), 'volume_m5_usd': volume, 'pool_created_at': attr.get('pool_created_at'), 'updated_at': time.time()}
+                    try:
+                        cap = float(attr.get('market_cap_usd'))
+                    except (TypeError, ValueError):
+                        cap = 0
+                    if math.isfinite(cap) and cap > 0:
+                        fields.update(market_cap_usd=cap, market_cap_source='GeckoTerminal', market_cap_updated_at=time.time())
+                    else:
+                        missing_caps.setdefault(network, []).append(address)
+                    self.observer(network, address, fields)
                 candidates[(network, address)] = volume
             if self.watchlist:
                 for network, address in self.watchlist():
                     candidates[(network, address)] = float('inf')
+                    if address not in missing_caps.setdefault(network, []):
+                        missing_caps[network].append(address)
+            if self.observer:
+                for network, addresses in list(missing_caps.items())[:20]:
+                    if not self.status()['enabled'] or generation != self.generation:
+                        return
+                    try:
+                        for address, fields in dex_market_caps(network, addresses).items():
+                            if self.status()['enabled'] and generation == self.generation:
+                                self.observer(network, address, fields)
+                    except (OSError, ValueError, TypeError):
+                        pass
             with self.alerts.connect() as con:
                 for row in con.execute("SELECT chain,address FROM token_alert_state WHERE rule='net_inflow_100k_5m' AND active=1"):
                     candidates.setdefault((row[0], row[1]), 100001)

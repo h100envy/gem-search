@@ -10,6 +10,8 @@ The inflow rule triggers when indexed buys minus sells exceed $100,000 during fi
 
 The $40,000 market-cap-before-five-minutes rule requires a reliable token creation source and is not automatically active. Pool age and fully diluted valuation are not substituted.
 
+Market cap uses GeckoTerminal when reported, with a batched DexScreener fallback for missing values and watched tokens. The app displays the provider and sample time. The highest-liquidity matching DexScreener base-token pair supplies the reported market cap. Missing responses do not erase a previously sampled value; its time remains visible. FDV is never substituted for market cap.
+
 ## Build from source
 
 Use Windows x64 and Python 3.11 or later:
