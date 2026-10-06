@@ -64,7 +64,14 @@ class TokenTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.ToolTipRole:
-            return self.records[index.row()]['address'] if index.column() == 0 else self.cells[index.row()][index.column()]
+            record = self.records[index.row()]
+            if index.column() == 0:
+                return record.get('name', '') + '\n' + record['address']
+            if self.headings[index.column()] == 'Reported market cap':
+                return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
+            if self.headings[index.column()] == 'Supply valuation (FD)':
+                return str(record.get('onchain_valuation_method', 'Not sampled')) + '\nPrice source: ' + str(record.get('onchain_price_source') or 'Not sampled') + '\nSampled: ' + stamp(record.get('onchain_valuation_sampled_at'))
+            return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.UserRole:
             return self.records[index.row()]
 
@@ -373,7 +380,7 @@ class DesktopWindow(QMainWindow):
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
-        values = lambda r: [r['name'] + '\n' + (r['address'][:7] + '...' + r['address'][-5:] if len(r['address']) > 16 else r['address']), r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at'))]
+        values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at'))]
         self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
@@ -411,7 +418,7 @@ class DesktopWindow(QMainWindow):
         if value is None:
             return 'Awaiting provider'
         sampled = record.get('market_cap_updated_at') or 0
-        return money(value) + '\n' + record.get('market_cap_source', 'Saved sample') + (' · STALE' if time.time() - sampled > 180 else ' · ' + stamp(sampled))
+        return money(value) + (' · STALE' if time.time() - sampled > 180 else '')
 
     def valuation_cell(self, record):
         if record['chain'] != 'solana':
@@ -420,7 +427,7 @@ class DesktopWindow(QMainWindow):
         if value is None:
             return 'Waiting for supply + price'
         sampled = record.get('onchain_valuation_sampled_at') or 0
-        return money(value) + '\n' + ('STALE' if time.time() - sampled > 180 else 'RPC + Dex · ' + stamp(sampled))
+        return money(value) + (' · STALE' if time.time() - sampled > 180 else '')
 
     def open_explorer(self, table):
         record = self.selected(table)
