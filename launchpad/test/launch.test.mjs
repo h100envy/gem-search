@@ -58,3 +58,29 @@ online('only the exact built message, signed by creator and mint, is accepted', 
   tx2.sign([mint, other]);
   assert.throws(() => checkSigned(Buffer.from(tx2.serialize()).toString('base64'), record), /changed/);
 });
+
+test('a GitHub split is checked: a real username and 1 to 100 percent', () => {
+  const f = parseLaunch(form({ github: '@octocat', githubShare: 40 }));
+  assert.equal(f.github, 'octocat');
+  assert.equal(f.githubShare, 40);
+  assert.equal(parseLaunch(form({ github: 'octocat' })).githubShare, 100);
+  assert.equal(parseLaunch(form()).github, '');
+  assert.throws(() => parseLaunch(form({ github: 'bad name!' })), /GitHub/);
+  assert.throws(() => parseLaunch(form({ github: '-dash' })), /GitHub/);
+  assert.throws(() => parseLaunch(form({ github: 'octocat', githubShare: 0 })), /share/);
+  assert.throws(() => parseLaunch(form({ github: 'octocat', githubShare: 12.5 })), /share/);
+});
+
+online('a new GitHub fee address with a dev buy goes in a small transaction of its own, signed by the creator alone', async () => {
+  const { AddressLookupTableAccount } = await import('@solana/web3.js');
+  const { sharedLaunchKeys } = await import('../launch.mjs');
+  const conn = new Connection(RPC, 'confirmed');
+  const table = new AddressLookupTableAccount({ key: Keypair.generate().publicKey, state: { deactivationSlot: 2n ** 64n - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: undefined, addresses: await sharedLaunchKeys(conn) } });
+  const creator = Keypair.generate(), mint = Keypair.generate();
+  const b = await buildLaunch(conn, { creator: creator.publicKey, mint: mint.publicKey, meta: { name: 'Crawl Spider', symbol: 'CRAWL', uri: 'https://ipfs.io/ipfs/bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku' }, devBuySol: 1, table, share: { githubId: 900000000 + Math.floor(Math.random() * 9e7), bps: 5000 } });
+  assert.ok(b.pre, 'the fee address is made first');
+  assert.ok(b.size <= TX_LIMIT && b.pre.size <= TX_LIMIT);
+  const pre = VersionedTransaction.deserialize(b.pre.tx.serialize());
+  pre.sign([creator]);
+  assert.ok(checkSigned(Buffer.from(pre.serialize()).toString('base64'), { message: b.pre.message, creator: creator.publicKey.toBase58() }));
+});

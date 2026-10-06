@@ -21,6 +21,7 @@ const PER_IP_HOUR = Number(env('LAUNCHES_PER_IP_HOUR', 6));
 const PER_DAY = Number(env('LAUNCHES_PER_DAY', 150));
 const PAUSED = env('LAUNCHPAD_PAUSED', '') === '1';
 const TRUST_PROXY = env('TRUST_PROXY', '') === '1';
+const GITHUB_TOKEN = env('GITHUB_TOKEN', ''); // optional: lifts GitHub's 60 lookups an hour
 const TABLE = env('LAUNCH_TABLE', ''); // optional address lookup table: keeps the priority fee on launches with a dev buy
 const BUILT_TTL = 150_000; // a blockhash lives ~60-90 s; a little longer covers a slow wallet prompt
 
@@ -75,20 +76,56 @@ function recent(n = 24) {
   return lines.slice(-n).reverse().map((l) => JSON.parse(l));
 }
 
+/** A GitHub username to the numeric id pump.fun keys fees by; the name is checked here, not trusted from the page. */
+async function githubAccount(login) {
+  const res = await fetch(`https://api.github.com/users/${encodeURIComponent(login)}`, {
+    headers: { 'user-agent': 'gemsearch-launchpad', accept: 'application/vnd.github+json', ...(GITHUB_TOKEN ? { authorization: `Bearer ${GITHUB_TOKEN}` } : {}) },
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => null);
+  if (res?.status === 404) throw new LaunchError(400, `GitHub: there is no account called ${login}`);
+  const json = res?.ok ? await res.json().catch(() => null) : null;
+  if (!Number.isSafeInteger(json?.id)) throw new LaunchError(502, 'could not reach GitHub to look up that account; try again in a minute');
+  return { id: json.id, login: json.login };
+}
+
 async function prepare(req, body) {
   if (PAUSED) throw new LaunchError(503, 'launches are paused for a moment');
   if (!conn || !PINATA) throw new LaunchError(503, 'launches are not switched on yet');
   const f = parseLaunch(body);
+  const table = await lookupTable();
+  if (f.github && !table) throw new LaunchError(503, 'sending fees to GitHub switches on shortly; launch without it for now');
   limit(`ip:${req.ip}`, PER_IP_HOUR, 3_600_000);
   limit('all', PER_DAY, 86_400_000);
+  const github = f.github ? await githubAccount(f.github) : null;
   const ext = f.image.contentType.split('/')[1];
   const image = await pin(`${f.symbol}.${ext}`, f.image.bytes, f.image.contentType);
   const metadata = { name: f.name, symbol: f.symbol, description: f.description, image, showName: true, createdOn: 'https://gemsearch.fun', ...f.links };
   const uri = await pin(`${f.symbol}.json`, JSON.stringify(metadata), 'application/json');
-  const b = await buildLaunch(conn, { creator: f.creator, mint: f.mint, meta: { name: f.name, symbol: f.symbol, uri }, devBuySol: f.devBuySol, table: await lookupTable() });
+  const share = github ? { githubId: github.id, bps: f.githubShare * 100 } : null;
+  const b = await buildLaunch(conn, { creator: f.creator, mint: f.mint, meta: { name: f.name, symbol: f.symbol, uri }, devBuySol: f.devBuySol, table, share });
   const id = randomBytes(12).toString('hex');
-  built.set(id, { at: Date.now(), message: b.message, creator: f.creator.toBase58(), mint: f.mint.toBase58(), lastValidBlockHeight: b.lastValidBlockHeight, name: f.name, symbol: f.symbol, image, devBuySol: f.devBuySol });
-  return { id, tx: Buffer.from(b.tx.serialize()).toString('base64'), uri, image };
+  built.set(id, {
+    at: Date.now(), message: b.message, pre: b.pre?.message ?? null, creator: f.creator.toBase58(), mint: f.mint.toBase58(), lastValidBlockHeight: b.lastValidBlockHeight,
+    name: f.name, symbol: f.symbol, image, devBuySol: f.devBuySol, github: github && { login: github.login, share: f.githubShare },
+  });
+  return { id, tx: Buffer.from(b.tx.serialize()).toString('base64'), pre: b.pre ? Buffer.from(b.pre.tx.serialize()).toString('base64') : null, uri, image, github: github && { login: github.login, id: github.id } };
+}
+
+/** Sends a signed transaction; a refusal before broadcast comes back as a reason a person can act on. */
+async function broadcast(tx) {
+  try {
+    await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 3 });
+    return null;
+  } catch (err) {
+    // web3.js puts the reason on the lines after "Simulation failed."; read all of it.
+    const full = String(err.message).replace(/\s+/g, ' ');
+    const msg = (/Message: (.*?)(?: Logs:|$)/.exec(full)?.[1] ?? full).slice(0, 200);
+    if (/already in use/i.test(full)) return 'exists';
+    if (/blockhash not found/i.test(full)) throw new LaunchError(400, 'the signature took too long and the launch expired; start again');
+    if (/insufficient|no record of a prior credit|0x1\b/i.test(full)) throw new LaunchError(400, 'not enough SOL in your wallet: a launch needs about 0.03 SOL plus the dev buy');
+    if (/simulat|preflight|custom program error/i.test(full)) throw new LaunchError(400, `the network refused the launch: ${msg}`);
+    return 'unsure';
+  }
 }
 
 async function submit(body) {
@@ -96,23 +133,22 @@ async function submit(body) {
   const b = built.get(String(body?.id ?? ''));
   if (!b) throw new LaunchError(400, 'that launch expired; start again');
   const tx = checkSigned(String(body?.signed ?? ''), b);
+  const pre = b.pre ? checkSigned(String(body?.signedPre ?? ''), { message: b.pre, creator: b.creator }) : null;
   built.delete(body.id);
-  const signature = bs58.encode(tx.signatures[0]);
-  try {
-    await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 3 });
-  } catch (err) {
-    // web3.js puts the reason on the lines after "Simulation failed."; read all of it.
-    const full = String(err.message).replace(/\s+/g, ' ');
-    const msg = (/Message: (.*?)(?: Logs:|$)/.exec(full)?.[1] ?? full).slice(0, 200);
-    if (/blockhash not found/i.test(full)) throw new LaunchError(400, 'the signature took too long and the launch expired; start again');
-    if (/insufficient|no record of a prior credit|0x1\b/i.test(full)) throw new LaunchError(400, 'not enough SOL in your wallet: a launch needs about 0.03 SOL plus the dev buy');
-    if (/simulat|preflight|custom program error/i.test(full)) throw new LaunchError(400, `the network refused the launch: ${msg}`);
-    return { status: 'pending', signature, mint: b.mint };
+  // The GitHub account's fee address goes first; if someone made it a moment ago, the launch still stands.
+  if (pre) {
+    const sent = await broadcast(pre);
+    if (sent !== 'exists') {
+      const r = await conn.confirmTransaction({ signature: bs58.encode(pre.signatures[0]), blockhash: pre.message.recentBlockhash, lastValidBlockHeight: b.lastValidBlockHeight }, 'confirmed').catch(() => null);
+      if (!r || r.value.err) throw new LaunchError(400, 'setting up the GitHub fee address did not go through; nothing was launched, start again');
+    }
   }
+  const signature = bs58.encode(tx.signatures[0]);
+  if ((await broadcast(tx)) === 'unsure') return { status: 'pending', signature, mint: b.mint };
   const res = await conn.confirmTransaction({ signature, blockhash: tx.message.recentBlockhash, lastValidBlockHeight: b.lastValidBlockHeight }, 'confirmed').catch(() => null);
   if (res?.value?.err) throw new LaunchError(400, `the launch failed on chain: ${JSON.stringify(res.value.err).slice(0, 200)}`);
   if (!res) return { status: 'pending', signature, mint: b.mint };
-  appendFileSync(LOG, JSON.stringify({ mint: b.mint, name: b.name, symbol: b.symbol, image: b.image, creator: b.creator, devBuySol: b.devBuySol, signature, at: new Date().toISOString() }) + '\n');
+  appendFileSync(LOG, JSON.stringify({ mint: b.mint, name: b.name, symbol: b.symbol, image: b.image, creator: b.creator, devBuySol: b.devBuySol, github: b.github, signature, at: new Date().toISOString() }) + '\n');
   return { status: 'live', signature, mint: b.mint };
 }
 
@@ -163,11 +199,11 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
     if (req.method === 'OPTIONS') return send(204, {});
-    if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED });
+    if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
     if (req.method === 'POST' && url.pathname === '/v1/prepare') return send(200, await prepare(req, await readJson(req, 3_000_000)));
-    if (req.method === 'POST' && url.pathname === '/v1/submit') return send(200, await submit(await readJson(req, 20_000)));
+    if (req.method === 'POST' && url.pathname === '/v1/submit') return send(200, await submit(await readJson(req, 40_000)));
     send(404, { error: 'not found' });
   } catch (err) {
     if (err instanceof LaunchError) return send(err.status, { error: err.message });
