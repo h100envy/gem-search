@@ -103,7 +103,7 @@ async function submit(body) {
   } catch (err) {
     const msg = String(err.message).split('\n')[0].slice(0, 200);
     if (/blockhash not found/i.test(msg)) throw new LaunchError(400, 'the signature took too long and the launch expired; start again');
-    if (/insufficient|0x1\b/i.test(msg)) throw new LaunchError(400, 'not enough SOL in your wallet: a launch needs about 0.03 SOL plus the dev buy');
+    if (/insufficient|no record of a prior credit|0x1\b/i.test(msg)) throw new LaunchError(400, 'not enough SOL in your wallet: a launch needs about 0.03 SOL plus the dev buy');
     if (/simulat|preflight|custom program error/i.test(msg)) throw new LaunchError(400, `the network refused the launch: ${msg}`);
     return { status: 'pending', signature, mint: b.mint };
   }
