@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import bs58 from 'bs58';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
+import { scanToken } from './scan.mjs';
 
 /**
  * gemsearch.fun's launchpad API. The page makes the coin's mint key and the creator's wallet signs; this server only
@@ -21,7 +22,8 @@ const PER_IP_HOUR = Number(env('LAUNCHES_PER_IP_HOUR', 6));
 const PER_DAY = Number(env('LAUNCHES_PER_DAY', 150));
 const PAUSED = env('LAUNCHPAD_PAUSED', '') === '1';
 const TRUST_PROXY = env('TRUST_PROXY', '') === '1';
-const GITHUB_TOKEN = env('GITHUB_TOKEN', ''); // optional: lifts GitHub's 60 lookups an hour
+const GITHUB_TOKEN = env('GITHUB_TOKEN', '');
+const SCANS_PER_IP_MINUTE = Number(env('SCANS_PER_IP_MINUTE', 20)); // optional: lifts GitHub's 60 lookups an hour
 const TABLE = env('LAUNCH_TABLE', ''); // optional address lookup table: keeps the priority fee on launches with a dev buy
 const BUILT_TTL = 150_000; // a blockhash lives ~60-90 s; a little longer covers a slow wallet prompt
 
@@ -31,10 +33,10 @@ mkdirSync(dirname(LOG), { recursive: true });
 
 // --- limits -------------------------------------------------------------------------------------------------------
 const hits = new Map();
-function limit(key, max, windowMs) {
+function limit(key, max, windowMs, message = 'too many launches from here right now; try again later') {
   const now = Date.now();
   const list = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
-  if (list.length >= max) throw new LaunchError(429, 'too many launches from here right now; try again later');
+  if (list.length >= max) throw new LaunchError(429, message);
   list.push(now);
   hits.set(key, list);
 }
@@ -152,6 +154,27 @@ async function submit(body) {
   return { status: 'live', signature, mint: b.mint };
 }
 
+// --- scanner ---------------------------------------------------------------------------------------------------------
+/** Readings are kept a minute: a coin everyone is checking costs one read, not one per visitor. */
+const scans = new Map();
+async function scan(req, mint) {
+  if (!conn) throw new LaunchError(503, 'the scanner is not switched on yet');
+  const hit = scans.get(mint);
+  if (hit && Date.now() - hit.at < 60_000) return hit.value;
+  limit(`scan:${req.ip}`, SCANS_PER_IP_MINUTE, 60_000, 'too many scans from here; wait a minute');
+  const pending = hit?.pending ?? scanToken(conn, RPC, mint);
+  scans.set(mint, { at: 0, pending });
+  try {
+    const value = await pending;
+    scans.set(mint, { at: Date.now(), value });
+    if (scans.size > 2000) scans.delete(scans.keys().next().value);
+    return value;
+  } catch (err) {
+    scans.delete(mint);
+    throw err;
+  }
+}
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -202,6 +225,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/scan/')) return send(200, await scan(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'POST' && url.pathname === '/v1/prepare') return send(200, await prepare(req, await readJson(req, 3_000_000)));
     if (req.method === 'POST' && url.pathname === '/v1/submit') return send(200, await submit(await readJson(req, 40_000)));
     send(404, { error: 'not found' });
