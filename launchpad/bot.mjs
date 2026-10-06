@@ -1,4 +1,5 @@
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
+import { createRadar } from './bot/radar.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -254,7 +255,7 @@ export function parseCommand(text, botName) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createBot({ token, rpc, dataDir = '/data', conn = null, log = console } = {}) {
+export function createBot({ token, rpc, dataDir = '/data', conn = null, log = console, radar: radarConfig = null } = {}) {
   const API = `https://api.telegram.org/bot${token}`;
   const clean = (e) => String(e?.stack ?? e).split(token).join('<token>');
   const connection = conn ?? new Connection(rpc, 'confirmed');
@@ -402,6 +403,23 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
   const asset = (file) => () => readFile(new URL(`./bot/assets/${file}`, import.meta.url));
 
   const send = (chatId, text, extra = {}) => tg('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
+  // Shill Radar: team-only, switched on per chat with a code from the server's environment; not in the public menu.
+  const radar = radarConfig?.bearer ? createRadar({ ...radarConfig, dataDir, send, log }) : null;
+  async function onRadar(chatId, arg) {
+    if (!radar) return send(chatId, '🕷️ The radar is not set up on this server.');
+    const [word, code] = String(arg ?? '').trim().split(/\s+/);
+    if (word === 'off') { await radar.unsubscribe(chatId); return send(chatId, '📴 Radar off for this chat.'); }
+    if (word === 'status') {
+      const st = radar.status();
+      if (!st.chats.includes(chatId)) return null;
+      return send(chatId, `📡 Radar ${st.stopped ? 'paused' : 'on'} · ${st.chats.length} chat(s)\nPosts read ${st.reads}, authors ${st.users}, alerts ${st.hits}\nSpent ≈ $${st.spentUsd.toFixed(2)} of $${radar.budgetUsd}`);
+    }
+    if (word === 'on' && code && code === radarConfig.code) {
+      const st = await radar.subscribe(chatId);
+      return send(chatId, `📡 Radar on. Fresh "shill me your ticker" posts from accounts with ${radarConfig.minFollowers ?? 1000}+ followers will land here every few minutes, with a draft reply. You post by hand.\nSpent so far ≈ $${st.spentUsd.toFixed(2)} of $${radar.budgetUsd}. /radar status · /radar off`);
+    }
+    return null; // wrong or missing code: stay quiet
+  }
   const edit = (chatId, messageId, text, extra = {}) => tg('editMessageText', { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
   const errorText = (e) => {
     if (e instanceof LaunchError) return `🕷️ ${esc(e.message.charAt(0).toUpperCase() + e.message.slice(1))}.`;
@@ -559,6 +577,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
           return send(chatId, listWatches(chatId));
         case 'launch':
           return send(chatId, LAUNCH_TEXT);
+        case 'radar':
+          return onRadar(chatId, cmd.arg);
         case 'token':
           return sendPhoto(chatId, asset('avatar.jpg'), TOKEN_TEXT, { key: 'avatar', name: 'gemsearch.jpg', type: 'image/jpeg' }).catch((e) => {
             log.error('[bot] avatar', clean(e));
@@ -651,6 +671,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
       }
     }
     setInterval(watchPass, WATCH_EVERY_MS).unref?.();
+    if (radar) await radar.start().then(() => log.log('[bot] radar ready'), (e) => log.error('[bot] radar', clean(e)));
     log.log('[bot] polling');
     await poll();
   }
@@ -666,5 +687,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
   process.on('unhandledRejection', (e) => console.error('[bot] unhandled', String(e?.stack ?? e).split(token).join('<token>')));
-  createBot({ token, rpc, dataDir: process.env.BOT_DATA_DIR ?? '/data' }).start();
+  const radar = process.env.X_BEARER_TOKEN && process.env.RADAR_CODE
+    ? { bearer: process.env.X_BEARER_TOKEN, code: process.env.RADAR_CODE, budgetUsd: Number(process.env.RADAR_BUDGET_USD ?? 9), minFollowers: Number(process.env.RADAR_MIN_FOLLOWERS ?? 1000), intervalMs: Number(process.env.RADAR_EVERY_S ?? 180) * 1000 }
+    : null;
+  createBot({ token, rpc, dataDir: process.env.BOT_DATA_DIR ?? '/data', radar }).start();
 }
