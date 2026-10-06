@@ -94,6 +94,26 @@ h2{font-size:18px;margin:0 0 12px}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
 .acts .btn{padding:10px 16px;font-size:14px}
 .note{font-size:13px;color:var(--dim);margin-top:16px}
+.xray{margin-top:18px}
+.xgrid{display:grid;grid-template-columns:1.25fr .75fr;gap:18px;align-items:start}
+@media (max-width:860px){.xgrid{grid-template-columns:1fr}}
+.xweb{position:relative;width:100%;aspect-ratio:1/1;border-radius:18px;background:radial-gradient(circle at 50% 50%,#22125c 0%,#0d0930 55%,#07051c 100%);border:1px solid var(--line);overflow:hidden}
+.xweb svg{width:100%;height:100%;display:block}
+.xweb .node{cursor:pointer;transition:opacity .2s}
+.xweb .dim{opacity:.18}
+.xtip{position:absolute;pointer-events:none;background:#140f3c;border:1px solid #3b3580;border-radius:12px;padding:10px 12px;font-size:13px;max-width:260px;display:none;z-index:2;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.xtip b{display:block;font-size:14px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.bundle{padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:#0a0822;margin-bottom:12px}
+.bundle.hot{border-color:rgba(255,94,142,.6);background:rgba(255,94,142,.07)}
+.bundle b{font-size:16px}.bundle p{margin:6px 0 0;color:var(--muted);font-size:14px}
+.cl{padding:12px 14px;border-radius:14px;border:1px solid var(--line);margin-bottom:10px;cursor:pointer}
+.cl:hover{border-color:#5b4fd0}
+.cl .t{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cl .dot{width:12px;height:12px;border-radius:50%;flex:none}
+.cl small{display:block;color:var(--muted);font-size:13px;margin-top:4px}
+.xload{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;height:100%;color:var(--muted);font-size:15px;text-align:center;padding:20px}
 footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px}
 footer p{margin:0 0 8px;max-width:820px}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(30px);opacity:0;background:#1a1450;border:1px solid var(--line);padding:10px 18px;border-radius:12px;transition:.25s;font-size:14px}
@@ -137,6 +157,15 @@ footer p{margin:0 0 8px;max-width:820px}
     <section class="card"><h2>Checks</h2><div id="checks"></div><div class="note" id="note"></div></section>
     <section class="card"><h2>Top holders</h2><div id="holders"></div><div class="note">The pump.fun curve and pools are named; the top 10 check leaves them out.</div></section>
   </div>
+  <section class="card xray" id="xray">
+    <h2>🕸️ Web X-ray <span class="mono" style="font-size:12px;color:var(--dim);font-weight:400">who really holds it</span></h2>
+    <div class="xgrid">
+      <div><div class="xweb" id="xweb"><div class="xload" id="xload"><i class="spin"></i>The spider is following the money…</div><svg id="xsvg" viewBox="0 0 900 900" hidden></svg><div class="xtip" id="xtip"></div></div>
+        <div class="legend"><span><i style="background:#ff5ea8"></i>dev</span><span><i style="background:#ff8a1f"></i>bought in the launch block</span><span><i style="background:#ffe81f"></i>bought in the first seconds</span><span><i style="background:#b48cff"></i>holder</span><span><i style="background:#1fd2ff"></i>shared funder</span></div></div>
+      <div id="xside"></div>
+    </div>
+    <div class="note">Wallets are linked when one funded the other, when one wallet funded several of them, when they passed this coin between each other, or when they bought in the same block as the launch. Exchange hot wallets never count as a shared funder. Every link opens its transaction.</div>
+  </section>
 </main>
 
 <footer><div class="wrap">
@@ -204,6 +233,7 @@ function show(r) {
   $('card').onclick = () => drawCard(r);
   $('out').style.display = 'block';
   $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  runXray(r);
 }
 
 // A shareable 1200×675 card, drawn in the browser.
@@ -243,6 +273,124 @@ async function drawCard(r) {
   g.fillStyle = '#8d88b8'; g.font = '600 20px Menlo, monospace'; g.fillText(r.mint, 64, 632);
   g.textAlign = 'right'; g.fillStyle = '#fff'; g.font = '700 22px Menlo, monospace'; g.fillText('gemsearch.fun/scan', 1136, 632); g.textAlign = 'left';
   c.toBlob((b) => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `gemsearch-scan-${(r.symbol || r.mint.slice(0, 6)).toLowerCase()}.png`; a.click(); });
+}
+
+// ---- Web X-ray -------------------------------------------------------------------------------------------------
+const CL = ['#ff2e7e', '#1fffc0', '#ffe81f', '#5b6bff', '#ff8a1f', '#4dff6a', '#b84dff', '#1fd2ff', '#ff5ea8', '#a8ff3d', '#ffb86b', '#7af0ff'];
+const KIND = { dev: '#ff5ea8', bundle: '#ff8a1f', sniper: '#ffe81f', holder: '#b48cff', funder: '#1fd2ff' };
+let xanim = null;
+async function runXray(r) {
+  cancelAnimationFrame(xanim);
+  $('xsvg').hidden = true; $('xload').style.display = 'flex'; $('xload').innerHTML = '<span style="font-size:34px">🕷️</span>The spider is following the money…<span class="mono" style="font-size:12px;color:var(--dim)">reading the launch, the holders and who funded them</span>'; $('xside').innerHTML = '';
+  try {
+    const res = await fetch(API + '/v1/xray/' + encodeURIComponent(r.mint));
+    const x = await res.json();
+    if (!res.ok) throw new Error(x.error || 'the X-ray did not answer');
+    if (last?.mint !== r.mint) return;
+    drawXray(x, r);
+  } catch (e) { $('xload').innerHTML = '🕸️<br>' + esc(e.message) + '<br><button class="btn ghost" type="button" id="xretry" style="margin-top:8px">Try again</button>'; $('xretry').onclick = () => runXray(r); }
+}
+function drawXray(x, r) {
+  const C = 450, svg = $('xsvg');
+  const clusters = x.clusters, nodes = x.nodes.filter((n) => n.kind !== 'funder' || n.cluster !== null);
+  const byId = new Map();
+  // Sectors: each cluster gets an arc sized to its wallets; the rest spread around the outer ring.
+  const inCl = nodes.filter((n) => n.cluster !== null && n.kind !== 'funder'), loose = nodes.filter((n) => n.cluster === null);
+  const total = inCl.length + loose.length || 1;
+  let a = -Math.PI / 2;
+  clusters.forEach((c, ci) => {
+    const members = inCl.filter((n) => n.cluster === ci);
+    const span = Math.max(0.5, (members.length / total) * Math.PI * 2);
+    members.forEach((n, i) => { const ang = a + span * (i + .5) / members.length; const rad = 250 + (i % 2) * 70; byId.set(n.id, { ...n, x: C + rad * Math.cos(ang), y: C + rad * Math.sin(ang), ang }); });
+    nodes.filter((n) => n.kind === 'funder' && n.cluster === ci).forEach((n, i) => { const ang = a + span / 2 + i * .12; byId.set(n.id, { ...n, x: C + 150 * Math.cos(ang), y: C + 150 * Math.sin(ang), ang }); });
+    a += span;
+  });
+  const rest = Math.PI * 2 - (a + Math.PI / 2);
+  loose.forEach((n, i) => { const ang = a + rest * (i + .5) / loose.length; const rad = 330 + (i % 3) * 30; byId.set(n.id, { ...n, x: C + rad * Math.cos(ang), y: C + rad * Math.sin(ang), ang }); });
+  let g = '<defs><radialGradient id="cg"><stop stop-color="#ff4fd8" stop-opacity=".5"/><stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/></radialGradient><filter id="gl" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><clipPath id="cc"><circle cx="450" cy="450" r="62"/></clipPath></defs>';
+  // the web
+  let w = '';
+  for (let i = 0; i < 24; i++) { const t = i / 24 * Math.PI * 2; w += `<line x1="${C}" y1="${C}" x2="${C + 440 * Math.cos(t)}" y2="${C + 440 * Math.sin(t)}"/>`; }
+  [110, 190, 270, 350, 430].forEach((rr) => { let d = ''; for (let i = 0; i <= 24; i++) { const t0 = i / 24 * Math.PI * 2, t1 = (i + 1) / 24 * Math.PI * 2, tm = (t0 + t1) / 2; d += (i ? '' : `M${C + rr * Math.cos(t0)} ${C + rr * Math.sin(t0)}`) + `Q${C + rr * .92 * Math.cos(tm)} ${C + rr * .92 * Math.sin(tm)} ${C + rr * Math.cos(t1)} ${C + rr * Math.sin(t1)}`; } w += `<path d="${d}"/>`; });
+  g += `<g stroke="#8a7bff" stroke-opacity=".14" stroke-width="1.2" fill="none">${w}</g>`;
+  // threads to the coin for every holder, faint
+  for (const n of byId.values()) if (n.kind !== 'funder') g += `<line x1="${C}" y1="${C}" x2="${n.x}" y2="${n.y}" stroke="#ffffff" stroke-opacity=".05"/>`;
+  // links
+  const paths = [];
+  // One thread per pair and kind; wallets that bought in the launch block get a dashed thread between them.
+  const pairs = new Map();
+  for (const e of x.edges) { const k = [e.from, e.to].sort().join('|') + e.kind; if (!pairs.has(k)) pairs.set(k, e); }
+  const block = nodes.filter((n) => n.kind === 'dev' || n.kind === 'bundle').filter((n) => x.bundle && x.bundle.sameBlockWallets >= 2);
+  for (let i = 1; i < block.length; i++) pairs.set('blk' + i, { from: block[i - 1].id, to: block[i].id, kind: 'block', signature: x.launch.signature });
+  [...pairs.values()].forEach((e, i) => {
+    const p = byId.get(e.from), q = byId.get(e.to); if (!p || !q) return;
+    const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2, cx = mx + (C - mx) * .25, cy = my + (C - my) * .25;
+    const col = e.kind === 'funded' ? '#1fd2ff' : e.kind === 'coins' ? '#ffe81f' : e.kind === 'block' ? '#ff8a1f' : '#4dff6a';
+    const ci = p.cluster ?? q.cluster;
+    paths.push({ id: 'e' + i, ci, d: `M${p.x} ${p.y}Q${cx} ${cy} ${q.x} ${q.y}` });
+    g += `<a href="https://solscan.io/tx/${esc(e.signature)}" target="_blank" rel="noopener"><path id="e${i}" class="node edge c${ci}" d="M${p.x} ${p.y}Q${cx} ${cy} ${q.x} ${q.y}" fill="none" stroke="${col}" stroke-width="2.4" stroke-opacity=".75"${e.kind === 'block' ? ' stroke-dasharray="7 6"' : ''} filter="url(#gl)"/></a>`;
+  });
+  // cluster halos
+  clusters.forEach((c, ci) => c.wallets.forEach((wid) => { const n = byId.get(wid); if (n) g += `<circle class="node c${ci}" cx="${n.x}" cy="${n.y}" r="${Math.max(9, 5 + Math.sqrt(n.pct) * 7) + 7}" fill="none" stroke="${CL[ci % CL.length]}" stroke-width="2.5" stroke-dasharray="4 4"/>`; }));
+  // nodes
+  for (const n of byId.values()) {
+    const rad = n.kind === 'funder' ? 8 : Math.max(7, 5 + Math.sqrt(n.pct) * 7);
+    const col = KIND[n.kind];
+    const shape = n.kind === 'funder' ? `<rect x="${n.x - rad}" y="${n.y - rad}" width="${rad * 2}" height="${rad * 2}" transform="rotate(45 ${n.x} ${n.y})" fill="${col}"/>` : `<circle cx="${n.x}" cy="${n.y}" r="${rad}" fill="${col}" fill-opacity=".9" stroke="#fff" stroke-opacity=".6" stroke-width="1.5"/>`;
+    g += `<g class="node c${n.cluster ?? 'x'}" data-id="${esc(n.id)}" filter="url(#gl)">${shape}</g>`;
+    if (n.pct >= 1.5) g += `<text x="${n.x}" y="${n.y + rad + 16}" text-anchor="middle" fill="#e9e5ff" font-size="13" font-family="JetBrains Mono,Menlo,monospace" style="pointer-events:none">${n.pct}%</text>`;
+  }
+  // the coin
+  g += `<circle cx="${C}" cy="${C}" r="110" fill="url(#cg)"/><circle cx="${C}" cy="${C}" r="66" fill="#0a0822" stroke="url(#rg)" stroke-width="5"/>`;
+  g += r.image ? `<image href="${esc(r.image)}" x="${C - 62}" y="${C - 62}" width="124" height="124" clip-path="url(#cc)" preserveAspectRatio="xMidYMid slice"/>` : `<text x="${C}" y="${C + 16}" text-anchor="middle" font-size="44">🕷️</text>`;
+  if (x.poolPct) g += `<text x="${C}" y="${C + 94}" text-anchor="middle" fill="#9fe9ff" font-size="13" font-family="JetBrains Mono,Menlo,monospace">pool / curve ${x.poolPct}%</text>`;
+  g += '<g id="spider" filter="url(#gl)"><circle r="7" fill="#fff"/><circle r="4.5" fill="#ff4fd8"/>' + [0, 1, 2, 3, 4, 5, 6, 7].map((i) => { const t = i / 8 * Math.PI * 2; return `<line x1="0" y1="0" x2="${13 * Math.cos(t)}" y2="${13 * Math.sin(t)}" stroke="${CL[i]}" stroke-width="2" stroke-linecap="round"/>`; }).join('') + '</g>';
+  svg.innerHTML = g; svg.hidden = false; $('xload').style.display = 'none';
+
+  // The spider walks the links of the biggest cluster, then the rest.
+  const route = paths.sort((p, q) => (p.ci ?? 99) - (q.ci ?? 99)).map((p) => svg.querySelector('#' + p.id)).filter(Boolean);
+  const sp = svg.querySelector('#spider');
+  if (!route.length) { sp.setAttribute('transform', `translate(${C} ${C - 80})`); }
+  else {
+    let k = 0, t0 = performance.now();
+    const step = (now) => {
+      const el = route[k % route.length], L = el.getTotalLength(), dur = Math.max(900, L * 5), f = Math.min(1, (now - t0) / dur);
+      const pt = el.getPointAtLength(f * L);
+      sp.setAttribute('transform', `translate(${pt.x} ${pt.y}) rotate(${(now / 6) % 360})`);
+      if (f >= 1) { k++; t0 = now; }
+      xanim = requestAnimationFrame(step);
+    };
+    xanim = requestAnimationFrame(step);
+  }
+
+  // hover: highlight a node's cluster
+  const tip = $('xtip');
+  const focus = (ci) => svg.querySelectorAll('.node').forEach((el) => el.classList.toggle('dim', ci !== null && !el.classList.contains('c' + ci)));
+  svg.querySelectorAll('g.node').forEach((el) => {
+    const n = byId.get(el.dataset.id);
+    el.addEventListener('mouseenter', (ev) => {
+      focus(n.cluster);
+      const c = n.cluster !== null ? clusters[n.cluster] : null;
+      tip.innerHTML = `<b class="mono">${esc(short(n.id))}</b>${{ dev: 'Dev wallet', bundle: 'Bought in the launch block', sniper: 'Bought in the first seconds', holder: 'Holder', funder: 'Funded several of these wallets' }[n.kind]}${n.pct ? ' · ' + n.pct + '%' : ''}${c ? `<br><span style="color:${CL[n.cluster % CL.length]}">Cluster ${n.cluster + 1}: ${c.size} wallets, ${c.holdsPct}%</span>` : ''}`;
+      const box = $('xweb').getBoundingClientRect(); tip.style.display = 'block'; tip.style.left = Math.min(box.width - 270, ev.clientX - box.left + 12) + 'px'; tip.style.top = (ev.clientY - box.top + 12) + 'px';
+    });
+    el.addEventListener('mouseleave', () => { focus(null); tip.style.display = 'none'; });
+    el.addEventListener('click', () => window.open('https://solscan.io/account/' + n.id, '_blank', 'noopener'));
+  });
+
+  // side panel
+  const b = x.bundle;
+  let side = '';
+  if (b) {
+    const hot = b.sameBlockWallets >= 3 || b.sameBlockBoughtPct >= 10;
+    side += `<div class="bundle ${hot ? 'hot' : ''}"><b>${b.sameBlockWallets ? `${b.sameBlockWallets} wallet${b.sameBlockWallets > 1 ? 's' : ''} bought in the launch block` : 'Nobody else bought in the launch block'}</b><p>${b.sameBlockWallets ? `They took ${b.sameBlockBoughtPct}% of supply${b.sameBlockWallets === 1 ? ' (the dev buy)' : ''}. ` : ''}${b.launchWindowWallets > b.sameBlockWallets ? `${b.launchWindowWallets - b.sameBlockWallets} more bought within ${b.windowSeconds}s. ` : ''}Launch buyers hold <b>${b.launchBuyersHoldNowPct}%</b> now. <a class="mono" href="https://solscan.io/tx/${esc(x.launch.signature)}" target="_blank" rel="noopener">launch tx ↗</a></p></div>`;
+  } else side += `<div class="bundle"><b>Launch not reached</b><p>This coin has too many transactions to read back to its launch; clusters below come from today's holders.</p></div>`;
+  side += clusters.length ? clusters.map((c, ci) => `<div class="cl" data-ci="${ci}"><div class="t"><span style="display:flex;gap:10px;align-items:center"><span class="dot" style="background:${CL[ci % CL.length]}"></span><b>Cluster ${ci + 1} · ${c.size} wallets</b></span><b class="mono">${c.holdsPct}%</b></div><small>${esc(c.reasons.join(' · '))}</small></div>`).join('') : '<div class="bundle"><b>No linked wallets found</b><p>None of the largest holders or launch buyers share a funder or sent to each other in their recent history.</p></div>';
+  side += `<button class="btn primary" id="xshare" type="button" style="margin-top:6px">Share the X-ray</button>`;
+  $('xside').innerHTML = side;
+  $('xside').querySelectorAll('.cl').forEach((el) => { el.addEventListener('mouseenter', () => focus(Number(el.dataset.ci))); el.addEventListener('mouseleave', () => focus(null)); });
+  const top = clusters[0];
+  $('xshare').onclick = () => window.open('https://x.com/intent/post?text=' + encodeURIComponent(`🕸️ Web X-ray of ${r.symbol ? '$' + r.symbol : 'this coin'} by @gemsearchfun\n\n${b ? `Launch block: ${b.sameBlockWallets} wallet${b.sameBlockWallets === 1 ? '' : 's'}, ${b.sameBlockBoughtPct}% bought, ${b.launchBuyersHoldNowPct}% still held\n` : ''}${top ? `Biggest linked cluster: ${top.size} wallets holding ${top.holdsPct}%\n` : 'No linked wallets among the top holders\n'}\ngemsearch.fun/scan?ca=${r.mint}`), '_blank', 'noopener');
 }
 
 $('f').addEventListener('submit', (e) => { e.preventDefault(); run($('ca').value); });
