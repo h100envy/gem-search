@@ -311,7 +311,7 @@ class DesktopWindow(QMainWindow):
             self.token_sort.addItem(label, value)
         self.token_sort.currentIndexChanged.connect(self.filter_changed)
         self.minimum_cap = QComboBox()
-        for label, value in [('Any market cap', 0), ('$1M and above', 1000000), ('$10M and above', 10000000), ('$100M and above', 100000000)]:
+        for label, value in [('$40K and above', 40000), ('$1M and above', 1000000), ('$10M and above', 10000000), ('$100M and above', 100000000)]:
             self.minimum_cap.addItem(label, value)
         self.minimum_cap.currentIndexChanged.connect(self.filter_changed)
         self.confirmed_only = QCheckBox('Confirmed mint only')
@@ -321,6 +321,7 @@ class DesktopWindow(QMainWindow):
         filter_options.setContentsMargins(0, 0, 0, 0)
         filter_options.addWidget(QLabel('Sort'))
         filter_options.addWidget(self.token_sort)
+        filter_options.addWidget(QLabel('Market cap'))
         filter_options.addWidget(self.minimum_cap)
         filter_options.addWidget(self.confirmed_only)
         self.filter_panel.hide()
@@ -669,7 +670,7 @@ class DesktopWindow(QMainWindow):
         self.status_label.setToolTip(str(state['checked']) + ' flow samples checked. ' + str(state['skipped']) + ' inflow samples pending validation. KOL trade monitoring remains unavailable.')
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
-        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'Solscan']
+        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'Solscan' and current_cap(r) is not None and current_cap(r) >= 40000]
         connected = bool(self.monitor.client.key)
         self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'Waiting for the first token response.' if not tokens else '')
         self.connection_notice.setVisible(not connected or not tokens or bool(state['error']))
