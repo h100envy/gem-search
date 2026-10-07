@@ -120,7 +120,7 @@ class SolscanTests(unittest.TestCase):
         self.assertEqual(fields['market_cap_usd'], 45000)
         self.assertEqual(fields['price_usd'], 1)
         self.assertIsNone(fields['onchain_valuation_usd'])
-        self.assertNotIn('net_inflow_m5_usd', alerts.evaluate.call_args.args[2])
+        self.assertIsNone(alerts.evaluate.call_args.args[2]['net_inflow_m5_usd'])
         self.assertEqual(alerts.evaluate.call_args.args[2]['creation_source'], 'Solscan')
 
     def test_mismatch_withholds_alert(self):

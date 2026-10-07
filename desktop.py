@@ -10,10 +10,11 @@ from urllib.parse import quote
 from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget, QPlainTextEdit
+from market_metrics import current_flow
 from data_quality import current_cap, current_value, mint_status
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
-from solscan_monitor import SolscanMonitor
+from dex_monitor import DexMonitor
 from desktop_credentials import load_key, save_key
 from cielo_client import CieloClient
 from kolscan_directory import bundled_wallets, read_wallets, SOURCE, CAPTURED
@@ -37,6 +38,21 @@ def money(value):
         return '${:,.2f}'.format(float(value)) if value is not None else 'Unavailable'
     except (ValueError, TypeError):
         return 'Unavailable'
+
+
+def compact(value):
+    if value is None:
+        return 'Unavailable'
+    for scale, suffix in [(1000000000, 'B'), (1000000, 'M'), (1000, 'K')]:
+        if abs(value) >= scale:
+            return '${:.2f}{}'.format(value / scale, suffix)
+    return money(value)
+
+
+def price(value):
+    if value is None:
+        return 'Unavailable'
+    return '$' + ('{:,.2f}'.format(value) if value >= 1 else '{:.10g}'.format(value))
 
 
 def stamp(value):
@@ -71,11 +87,16 @@ class TokenTableModel(QAbstractTableModel):
             record = self.records[index.row()]
             if index.column() == 0:
                 return record.get('name', '') + '\n' + record['address']
-            if self.headings[index.column()] == 'Reported market cap':
+            if self.headings[index.column()] == 'Market cap':
                 return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
-            if self.headings[index.column()] == 'Mint check':
+            if self.headings[index.column()] == 'Net 5m':
+                return 'Indexed five-minute buy volume minus sell volume. Not transfers or liquidity deposits.\nSampled: ' + stamp(record.get('flow_updated_at'))
+            if self.headings[index.column()] == 'Mint':
                 return 'Mint metadata only; does not verify USD price or market cap.\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
             return self.cells[index.row()][index.column()]
+        if role == Qt.ItemDataRole.ForegroundRole and self.headings[index.column()] == 'Net 5m':
+            flow = current_flow(self.records[index.row()])
+            return QColor('#888888' if flow is None else '#34A853' if flow >= 0 else '#EA4335')
         if role == Qt.ItemDataRole.UserRole:
             return self.records[index.row()]
 
@@ -218,7 +239,7 @@ class DesktopWindow(QMainWindow):
         super().__init__()
         self.store = store
         self.alerts = TokenAlerts(store.connect)
-        self.monitor = SolscanMonitor(self.alerts, store.record, store.watchlist, store.tokens, key=load_key(store.directory))
+        self.monitor = DexMonitor(self.alerts, store.record, store.watchlist, store.tokens, key=load_key(store.directory))
         self.stop = threading.Event()
         self.background = background
         self.pending_store = queue.Queue()
@@ -307,7 +328,7 @@ class DesktopWindow(QMainWindow):
         self.search.setPlaceholderText('Search token name, chain or address')
         self.search.textChanged.connect(self.filter_changed)
         self.token_sort = QComboBox()
-        for label, value in [('Top market cap', 'cap'), ('Newest tokens', 'newest'), ('Name', 'name')]:
+        for label, value in [('Top market cap', 'cap'), ('Newest tokens', 'newest'), ('Name', 'name'), ('Top volume · 5m', 'volume')]:
             self.token_sort.addItem(label, value)
         self.token_sort.currentIndexChanged.connect(self.filter_changed)
         self.minimum_cap = QComboBox()
@@ -325,7 +346,7 @@ class DesktopWindow(QMainWindow):
         filter_options.addWidget(self.minimum_cap)
         filter_options.addWidget(self.confirmed_only)
         self.filter_panel.hide()
-        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Mint check', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Mint check', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
+        for name, headings in [('Live tokens', ['Token', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Mint', 'Time']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Mint', 'Time']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
             page = QWidget()
             box = QVBoxLayout(page)
             box.setContentsMargins(10, 8, 10, 8)
@@ -346,7 +367,7 @@ class DesktopWindow(QMainWindow):
                 box.addLayout(search_controls)
                 box.addWidget(self.filter_panel)
             if name == 'Saved tokens':
-                history_notice = QLabel('Saved history from earlier versions. These values are historical provider data, excluded from live Solscan results and new alerts.')
+                history_notice = QLabel('Saved history from earlier versions. These values are historical provider data, excluded from live results and new alerts.')
                 history_notice.setWordWrap(True)
                 box.addWidget(history_notice)
             table = TokenTable()
@@ -358,11 +379,11 @@ class DesktopWindow(QMainWindow):
             table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
             table.setColumnWidth(1, 75)
             table.horizontalHeader().setStretchLastSection(True)
-            table.verticalHeader().setDefaultSectionSize(50)
+            table.verticalHeader().setDefaultSectionSize(34)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             table.setShowGrid(False)
-            table.setWordWrap(True)
+            table.setWordWrap(False)
             table.verticalHeader().hide()
             table.setAlternatingRowColors(True)
             table.doubleClicked.connect(lambda index, target=table: self.inspect(target, index.row()))
@@ -478,7 +499,7 @@ class DesktopWindow(QMainWindow):
         settings.addWidget(cielo_login)
         self.cielo_connection = QLabel('Activity key saved locally' if load_key(store.directory, 'cielo') else 'Activity key not configured')
         settings.addWidget(self.cielo_connection)
-        self.solscan_connection = QLabel('Token key saved locally' if self.monitor.client.key else 'Token key not configured')
+        self.solscan_connection = QLabel('Token key saved locally' if load_key(store.directory) else 'Token key not configured')
         settings.addWidget(self.solscan_connection)
         settings.addWidget(QLabel('TOKEN CONNECTION\nEnter your token data key locally. Market values are reported values, not independently verified USD valuations.'))
         self.solscan_key = QLineEdit()
@@ -667,15 +688,17 @@ class DesktopWindow(QMainWindow):
     def refresh(self):
         state = self.monitor.status()
         self.status_label.setText(('Monitoring' if state['enabled'] else 'Paused') + (' · Connection needs attention. See Settings.' if state['error'] else ' · Token refresh') + (' · Valuation unavailable' if state.get('valuation_error') else ''))
-        self.status_label.setToolTip(str(state['checked']) + ' flow samples checked. ' + str(state['skipped']) + ' inflow samples pending validation. KOL trade monitoring remains unavailable.')
+        self.status_label.setToolTip(str(state['checked']) + ' measured flow samples. ' + str(state['skipped']) + ' unavailable flow samples. Last successful response: ' + stamp(state.get('last_success_at')))
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
-        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'Solscan' and current_cap(r) is not None and current_cap(r) >= 40000]
+        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000]
         connected = bool(self.monitor.client.key)
-        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'Waiting for the first token response.' if not tokens else '')
+        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum. Waiting for data.' if not tokens else '')
         self.connection_notice.setVisible(not connected or not tokens or bool(state['error']))
-        if state['error']:
-            self.connection_notice.setText(str(state['error']))
+        feed_errors = [state.get(k) for k in ('error', 'ranking_error', 'flow_error') if state.get(k)]
+        if feed_errors:
+            self.connection_notice.setText(' | '.join(feed_errors))
+            self.connection_notice.setVisible(True)
         self.connection_button.setVisible(not connected)
         self.control_buttons['primary'].setText('Start monitoring' if connected else 'Connect data')
         self.control_buttons['primary'].setEnabled(not state['enabled'])
@@ -687,9 +710,11 @@ class DesktopWindow(QMainWindow):
             filtered.sort(key=lambda r: (-(current_cap(r) if current_cap(r) is not None else -1), r['name'].casefold(), r['address']))
         elif self.token_sort.currentData() == 'newest':
             filtered.sort(key=lambda r: -(r.get('token_created_at') or 0))
+        elif self.token_sort.currentData() == 'volume':
+            filtered.sort(key=lambda r: -(current_value(r, 'volume_m5_usd', 'statistics_sampled_at') or 0))
         else:
             filtered.sort(key=lambda r: (r['name'].casefold(), r['address']))
-        values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), 'Unavailable', 'Not measured']
+        values = lambda r: [r['name'], price(current_value(r, 'price_usd', 'price_sampled_at')), self.cap_cell(r), compact(current_value(r, 'volume_h24_usd', 'statistics_sampled_at')), compact(current_value(r, 'volume_m5_usd', 'statistics_sampled_at')), compact(current_flow(r)), (str(int(r['buy_count_m5'])) + ' / ' + str(int(r['sell_count_m5']))) if current_value(r, 'buy_count_m5', 'statistics_sampled_at') is not None and current_value(r, 'sell_count_m5', 'statistics_sampled_at') is not None else 'Unavailable', compact(current_value(r, 'liquidity_usd', 'statistics_sampled_at')), self.valuation_cell(r), time.strftime('%H:%M:%S', time.localtime(r['market_cap_updated_at']))]
         self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
@@ -731,10 +756,10 @@ class DesktopWindow(QMainWindow):
 
     def cap_cell(self, record):
         value = current_cap(record)
-        return money(value) if value is not None else 'Unavailable'
+        return compact(value) if value is not None else 'Unavailable'
 
     def valuation_cell(self, record):
-        return {'confirmed': 'Confirmed mint', 'mismatch': 'Mismatch', 'pending': 'Pending', 'unavailable': 'Unavailable'}[mint_status(record)]
+        return {'confirmed': 'Confirmed', 'mismatch': 'Mismatch', 'pending': 'Pending', 'unavailable': 'Unavailable'}[mint_status(record)]
 
     def open_explorer(self, table):
         record = self.selected(table)
@@ -838,7 +863,7 @@ class DesktopWindow(QMainWindow):
         if row < 0 or row >= table.model().rowCount():
             return
         record = table.model().records[row]
-        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Current reported market cap: ' + money(current_cap(record)), 'Current reported price: ' + money(current_value(record, 'price_usd', 'price_sampled_at')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Mint metadata check: ' + self.valuation_cell(record) + '. Does not verify USD value.', 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net inflow: unavailable; no measured swap flow']))
+        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Current reported market cap: ' + money(current_cap(record)), 'Current reported price: ' + price(current_value(record, 'price_usd', 'price_sampled_at')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Mint metadata check: ' + self.valuation_cell(record) + '. Does not verify USD value.', 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net flow · 5m (buy USD minus sell USD): ' + money(current_flow(record))]))
 
     def show_alert_history(self):
         self.tabs.setCurrentIndex(1)
@@ -904,42 +929,42 @@ def main():
     application.setApplicationName('Gem Search')
     application.setStyle('Fusion')
     application.setStyleSheet('''
-        QWidget{background:#ffffff;color:#171717;font-family:"Segoe UI";font-size:13px}
+        QWidget{background:#101114;color:#e7e9ed;font-family:"Segoe UI";font-size:13px}
         QLabel{background:transparent}
-        QPlainTextEdit{background:#ffffff;color:#171717;border:1px solid #d2d2d7;border-radius:12px;padding:12px}
-        QWidget#topbar{background:#fafafa;border-bottom:1px solid #e5e5e5}
+        QPlainTextEdit{background:#101114;color:#e7e9ed;border:1px solid #30343b;border-radius:12px;padding:12px}
+        QWidget#topbar{background:#17191d;border-bottom:1px solid #30343b}
         QLabel#brand{font-size:17px;font-weight:600;background:transparent}
         QLabel#pageTitle{font-size:32px;font-weight:600;letter-spacing:-1px;background:transparent}
         QLabel#eyebrow{color:#86868b;font-size:10px;font-weight:600;padding-bottom:12px}
-        QWidget#sidebar{background:#f5f5f7;border-right:1px solid #e4e4e7}
+        QWidget#sidebar{background:#1c1e23;border-right:1px solid #30343b}
         QListWidget#navigation{background:transparent;border:none;outline:none;font-size:13px}
         QListWidget#navigation::item{padding:12px 10px;margin-bottom:4px;border-radius:8px}
-        QListWidget#navigation::item:selected{background:#e8eef9;color:#171717}
-        QListWidget#navigation::item:hover{background:#ebebed}
-        QLabel#status{color:#66666d;font-size:11px;padding:8px 0;background:transparent}
-        QPushButton{background:#ffffff;border:1px solid #d2d2d7;padding:8px 14px;border-radius:16px;font-weight:500}
-        QPushButton:hover{background:#d2d2d7}
+        QListWidget#navigation::item:selected{background:#263753;color:#e7e9ed}
+        QListWidget#navigation::item:hover{background:#252930}
+        QLabel#status{color:#a3a9b3;font-size:11px;padding:8px 0;background:transparent}
+        QPushButton{background:#101114;border:1px solid #30343b;padding:8px 14px;border-radius:16px;font-weight:500}
+        QPushButton:hover{background:#30343b}
         QPushButton#primary{background:#4285F4;color:#ffffff;border:none}
-        QPushButton#orange{background:#F58220;color:#171717;border:none}
+        QPushButton#orange{background:#F58220;color:#101114;border:none}
         QPushButton#orange:hover{background:#ff993d}
         QPushButton#primary:hover{background:#2168d8}
-        QPushButton#stop{background:transparent;color:#d93025;border:1px solid #d2d2d7}
-        QPushButton#stop:disabled{color:#9b9ba1;border-color:#e5e5e7}
-        QPushButton:disabled{background:#f5f5f7;color:#9b9ba1;border-color:#e5e5e7}
-        QLineEdit,QComboBox{background:#f5f5f7;border:1px solid #d2d2d7;padding:10px 12px;border-radius:10px;selection-background-color:#4285F4}
+        QPushButton#stop{background:transparent;color:#d93025;border:1px solid #30343b}
+        QPushButton#stop:disabled{color:#9b9ba1;border-color:#30343b}
+        QPushButton:disabled{background:#1c1e23;color:#9b9ba1;border-color:#30343b}
+        QLineEdit,QComboBox{background:#1c1e23;border:1px solid #30343b;padding:10px 12px;border-radius:10px;selection-background-color:#4285F4}
         QLineEdit:focus{border-color:#4285F4}
         QTabWidget::pane{border:none;background:transparent}
-        QTableView{background:#ffffff;alternate-background-color:#fafafa;border:1px solid #e5e5e7;border-radius:12px;selection-background-color:#e8eef9;selection-color:#171717}
-        QTableView::item{padding:8px;border-bottom:1px solid #eaeaed}
-        QHeaderView::section{background:#f5f5f7;color:#66666d;padding:12px 8px;border:none;font-size:11px;font-weight:500}
+        QTableView{background:#101114;alternate-background-color:#17191d;border:1px solid #30343b;border-radius:12px;selection-background-color:#263753;selection-color:#e7e9ed}
+        QTableView::item{padding:8px;border-bottom:1px solid #252930}
+        QHeaderView::section{background:#1c1e23;color:#a3a9b3;padding:12px 8px;border:none;font-size:11px;font-weight:500}
         QCheckBox{spacing:10px;padding:6px}
-        QScrollBar:vertical{background:#f5f5f7;width:8px;margin:0}
+        QScrollBar:vertical{background:#1c1e23;width:8px;margin:0}
         QScrollBar::handle:vertical{background:#b5b5ba;min-height:30px;border-radius:4px}
         QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0}
-        QMenu{background:#ffffff;border:1px solid #d2d2d7;padding:6px}
+        QMenu{background:#101114;border:1px solid #30343b;padding:6px}
         QMenu::item{padding:8px 20px}
-        QMenu::item:selected{background:#e8eef9}
-        QMessageBox{background:#f5f5f7}
+        QMenu::item:selected{background:#263753}
+        QMessageBox{background:#1c1e23}
     ''')
     directory = Path(args.data_dir) if args.data_dir else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'GemSearch'
     store = DesktopStore(directory)
@@ -963,15 +988,15 @@ def main():
         from desktop_checks import run_responsiveness_check
         check_timer = run_responsiveness_check(application, window, store, args.responsiveness_test)
     if args.smoke_test:
-        store.record('base', '0x' + 'a' * 40, {'data_source': 'Solscan', 'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'net_inflow_m5_usd': 125000, 'flow_updated_at': time.time()})
+        store.record('base', '0x' + 'a' * 40, {'data_source': 'DexScreener', 'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'market_cap_updated_at': time.time(), 'price_usd': 0.000042, 'price_sampled_at': time.time(), 'net_inflow_m5_usd': 125000, 'flow_method': 'indexed_buy_minus_sell_5m', 'flow_updated_at': time.time()})
         store.watch('base', '0x' + 'a' * 40)
         window.alerts.evaluate('base', '0x' + 'a' * 40, {'net_inflow_m5_usd': 125000})
         store.record('solana', 'historical-fixture', {'name': 'Historical fixture', 'market_cap_usd': 50000, 'market_cap_source': 'Legacy fixture'})
         window.refresh()
         assert window.connection_notice.isVisible()
         window.start_monitor()
-        assert window.tabs.currentIndex() == window.connection_tab
-        assert not window.monitor.status()['enabled']
+        assert window.monitor.status()['enabled']
+        window.stop_monitor()
         window.tabs.setCurrentIndex(0)
         assert window.total_counts['Saved tokens'] == 2
         assert window.tables['Live tokens'].rowCount() == 1

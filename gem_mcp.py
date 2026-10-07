@@ -11,6 +11,7 @@ from typing import Any, Literal
 from mcp import types
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from market_metrics import current_flow
 from data_quality import current_cap, current_value, fresh, mint_status
 from kolscan_directory import bundled_wallets, read_wallets
 
@@ -41,7 +42,14 @@ def token_view(record, historical=False):
         'historical': historical,
         'mint_status': mint_status(record),
         'mint_check_scope': 'Mint metadata only; does not verify USD value',
-        'net_inflow_m5_usd': None
+        'net_inflow_m5_usd': current_flow(record),
+        'flow_sampled_at': number(record.get('flow_updated_at')),
+        'volume_m1_usd': current_value(record, 'volume_m1_usd', 'statistics_sampled_at'),
+        'volume_m5_usd': current_value(record, 'volume_m5_usd', 'statistics_sampled_at'),
+        'volume_h24_usd': current_value(record, 'volume_h24_usd', 'statistics_sampled_at'),
+        'liquidity_usd': current_value(record, 'liquidity_usd', 'statistics_sampled_at'),
+        'buy_count_m5': current_value(record, 'buy_count_m5', 'statistics_sampled_at'),
+        'sell_count_m5': current_value(record, 'sell_count_m5', 'statistics_sampled_at')
     }
 
 
@@ -82,7 +90,7 @@ def create_server(directory):
             raise ToolError('Use a short search and a finite nonnegative minimum market cap.')
         records = reader.tokens()
         if scope != 'saved':
-            records = [r for r in records if r.get('data_source') == 'Solscan']
+            records = [r for r in records if r.get('data_source') in ('Solscan', 'DexScreener')]
         if scope == 'watchlist':
             watched = {(r['chain'], r['address']) for r in reader.rows('SELECT chain,address FROM desktop_watchlist')}
             records = [r for r in records if (r['chain'], r['address']) in watched]

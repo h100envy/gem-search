@@ -15,3 +15,9 @@ Enter credentials only in the local Settings fields. API access is separate from
 Import wallet lists using CSV or JSON with name and address fields. Imports remain local and do not add wallet addresses to the token watchlist.
 
 Download the ZIP from Releases for the executable and bundled licenses. The executable is unsigned. Build using requirements-desktop.txt and scripts/build_desktop.py.
+
+The current preview uses a public market feed without requiring a key. Quotes are polled every 15 seconds and discovery every minute. Discovery covers profiles, boosted entries, saved tokens and your watchlist, not the entire market. Up to 300 addresses are refreshed per cycle with saved addresses rotated. The highest-liquidity pair supplies each token quote. Reported market capitalization is never replaced with fully diluted valuation.
+
+The live table shows price, market capitalization, five-minute and 24-hour pair volume, five-minute buy and sell counts, liquidity and mint verification. Tokens below $40,000 or with stale or missing market capitalization are excluded. Mint checks verify the account and supply, not the USD price.
+
+The public feed does not provide separate buy and sell USD totals or a one-minute trading window. Net inflow alerts and the early-launch market capitalization alert remain unavailable in this preview. Pair creation time is not treated as token creation time.

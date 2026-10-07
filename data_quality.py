@@ -19,4 +19,4 @@ def mint_status(record):
     if not fresh(record.get('onchain_supply_sampled_at')):
         return 'unavailable'
     status = str(record.get('verification_status', ''))
-    return 'confirmed' if status.startswith('Mint and decimals confirmed') else 'mismatch' if 'differ' in status else 'pending'
+    return 'confirmed' if status.startswith(('Mint and decimals confirmed', 'Mint account confirmed')) else 'mismatch' if 'differ' in status else 'pending'
