@@ -100,8 +100,8 @@ class TokenTableModel(QAbstractTableModel):
                 return 'Indexed five-minute buy volume minus sell volume. Not transfers or liquidity deposits.\nSampled: ' + stamp(record.get('flow_updated_at'))
             if self.headings[index.column()].startswith('Check'):
                 return 'Token account, supply and decimals only; does not verify USD price or market cap.\nCheck sampled: ' + stamp(record.get('onchain_supply_sampled_at')) + '\nS = reported sell transactions over ' + self.headings[index.column()].split()[-1] + '\nTrade counts sampled: ' + stamp(record.get('statistics_sampled_at')) + '\nA question mark means the sell count is unavailable.'
-            if self.headings[index.column()].startswith('B/S '):
-                return 'Buy / sell transaction counts over ' + self.headings[index.column()][4:] + '\nSampled: ' + stamp(record.get('statistics_sampled_at'))
+            if self.headings[index.column()].startswith('Buys '):
+                return 'Buy transaction counts over ' + self.headings[index.column()][5:] + '\nSampled: ' + stamp(record.get('statistics_sampled_at'))
             return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.ForegroundRole and self.headings[index.column()] == 'Net 5m':
             flow = current_flow(self.records[index.row()])
@@ -366,7 +366,7 @@ class DesktopWindow(QMainWindow):
         filter_options.addWidget(self.minimum_cap)
         filter_options.addWidget(self.confirmed_only)
         self.filter_panel.hide()
-        for name, headings in [('Live tokens', ['Token', 'Chain', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Check', 'Time']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token', 'Chain', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Check', 'Time']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
+        for name, headings in [('Live tokens', ['Token', 'Chain', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys', 'Liquidity', 'Check', 'Time']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token', 'Chain', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys', 'Liquidity', 'Check', 'Time']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
             page = QWidget()
             box = QVBoxLayout(page)
             box.setContentsMargins(10, 8, 10, 8)
@@ -915,14 +915,14 @@ class DesktopWindow(QMainWindow):
         for name in ['Live tokens', 'Watchlist']:
             model = self.tables[name].model()
             headings = list(model.headings)
-            headings[4], headings[5], headings[7] = 'Vol ' + label, 'Change ' + label, 'B/S ' + label
+            headings[4], headings[5], headings[7] = 'Vol ' + label, 'Change ' + label, 'Buys ' + label
             headings[9] = 'Check / sells ' + label
             if model.headings != headings:
                 model.headings = headings
                 model.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, model.columnCount() - 1)
         def values(record):
             activity = activity_values(record, timeframe)
-            counts = str(int(activity['buys'])) + ' / ' + str(int(activity['sells'])) if activity['buys'] is not None and activity['sells'] is not None else 'Unavailable'
+            counts = str(int(activity['buys'])) if activity['buys'] is not None else 'Unavailable'
             change = '{:+.2f}%'.format(activity['change']) if activity['change'] is not None else 'Unavailable'
             check_sells = self.valuation_cell(record) + ' · S ' + ('{:,}'.format(int(activity['sells'])) if activity['sells'] is not None else '?')
             return [record['name'], EVM[record['chain']][3] if record['chain'] in EVM else 'SOL', price(current_value(record, 'price_usd', 'price_sampled_at')), self.cap_cell(record), compact(activity['volume']), change, compact(current_flow(record)), counts, compact(current_value(record, 'liquidity_usd', 'statistics_sampled_at')), check_sells, time.strftime('%H:%M:%S', time.localtime(record['market_cap_updated_at']))]

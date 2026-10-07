@@ -137,8 +137,8 @@ def workflow_case(chain, action):
         self.assertEqual(model.rowCount(), expected)
         if action != 'reset':
             for cells in model.cells:
-                self.assertGreaterEqual(int(cells[7].split(' / ')[0]), 1000)
-        self.assertEqual(model.headings[7], 'B/S 24H')
+                self.assertGreaterEqual(int(cells[7]), 1000)
+        self.assertEqual(model.headings[7], 'Buys 24H')
         if action == 'cancel':
             self.assertEqual(self.window.applied_filters, initial)
         if action == 'pagination':
