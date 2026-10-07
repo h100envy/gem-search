@@ -121,6 +121,24 @@ h2{font-size:18px;margin:0 0 12px}
 .crewstats small{display:block;color:var(--dim);font-size:12px}.crewstats b{font-size:20px}
 .crewrow{display:grid;grid-template-columns:1fr auto auto;gap:12px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06);font-size:14px;text-decoration:none}
 .crewrow span:nth-child(2),.crewrow span:nth-child(3){font-family:"JetBrains Mono",monospace;color:var(--muted)}
+.council .cintro{color:var(--muted);font-size:15px;margin:-6px 0 16px}
+.turn{display:flex;gap:12px;align-items:flex-start;margin:12px 0;animation:tin .45s both}
+@keyframes tin{from{opacity:0;transform:translateY(10px)}}
+.turn .av{width:42px;height:42px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:21px;background:#0a0822;border:2px solid var(--c)}
+.turn .bub{background:#0a0822;border:1px solid #241f58;border-radius:4px 16px 16px 16px;padding:10px 14px;max-width:760px}
+.turn .who{font:700 13px "JetBrains Mono",monospace;color:var(--c);letter-spacing:.04em}
+.turn .txt{font-size:15.5px;margin-top:2px}
+.xsum{background:#0a0822;border:1px dashed #3b3580;border-radius:14px;padding:12px 14px;font-size:14px;color:var(--muted);white-space:pre-wrap;margin-bottom:6px}
+.xsum a{color:var(--cyan)}
+.votes{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 10px}
+@media (max-width:760px){.votes{grid-template-columns:1fr 1fr}}
+.vote{border-radius:14px;padding:12px;border:1px solid #241f58;background:#0a0822;animation:tin .45s both}
+.vote b{display:block;font:800 20px "JetBrains Mono",monospace}.vote small{color:var(--muted);font-size:13px}
+.v-APE{color:var(--green)}.v-WATCH{color:var(--yellow)}.v-AVOID{color:var(--red)}
+.cverdict{text-align:center;margin:16px 0 6px;font-size:15px;color:var(--muted)}
+.cverdict b{display:block;font-size:44px;letter-spacing:-.02em}
+.ask{display:flex;gap:10px;margin-top:16px}.ask input{flex:1;min-width:0;background:#0a0822;border:1px solid var(--line);border-radius:999px;padding:12px 18px;color:var(--text);font:15px inherit;outline:none}
+@media (max-width:620px){.ask{flex-direction:column}}
 .xload{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;height:100%;color:var(--muted);font-size:15px;text-align:center;padding:20px}
 footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px}
 footer p{margin:0 0 8px;max-width:820px}
@@ -175,6 +193,11 @@ footer p{margin:0 0 8px;max-width:820px}
     </div>
     <div id="crew"></div>
     <div class="note">Wallets are linked when one funded the other, when one wallet funded several of them, when they passed this coin between each other, or when they bought in the same block as the launch. Exchange hot wallets never count as a shared funder. Every link opens its transaction.</div>
+  </section>
+  <section class="card council" id="council">
+    <h2>🤖 Grok Council <span class="mono" style="font-size:12px;color:var(--dim);font-weight:400">four Grok minds debate this coin</span></h2>
+    <p class="cintro">The Lookout reads what X is saying right now. The Skeptic, the Builder and Timing argue from the spider's on-chain facts. Then they vote.</p>
+    <div id="cbody"><button class="btn primary" id="convene" type="button">Convene the council</button></div>
   </section>
 </main>
 
@@ -244,6 +267,7 @@ function show(r) {
   $('out').style.display = 'block';
   $('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
   runXray(r);
+  resetCouncil();
 }
 
 // A shareable 1200×675 card, drawn in the browser.
@@ -424,6 +448,41 @@ async function loadCrew(mint) {
       ${k.history.map((h) => `<a class="crewrow" href="?ca=${encodeURIComponent(h.mint)}"><span>${esc(h.name || 'unnamed')} <span class="mono" style="color:var(--cyan)">$${esc(h.symbol)}</span></span><span>${day(h.t)}</span><span>${h.mc1h == null ? 'pending' : '1h ' + money(h.mc1h)}</span></a>`).join('')}
       <p style="margin-top:10px;font-size:13px">A crew is a funding pattern on chain: wallets topped up from the same sources. It is not a proven identity.</p></div>`;
   } catch {}
+}
+
+// ---- Grok Council -------------------------------------------------------------------------------------------------
+const SEAT = { lookout: ['🔭', 'LOOKOUT', '#1fd2ff'], skeptic: ['🧐', 'SKEPTIC', '#ff5e8e'], builder: ['🛠', 'BUILDER', '#4dff6a'], timing: ['⏱', 'TIMING', '#ffe81f'] };
+const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[\[(\d+)\]\]\((https:\/\/x\.com\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">[$1]</a>');
+const turnHtml = (seat, text, delay) => { const [e, n, c] = SEAT[seat] ?? ['🕷️', seat.toUpperCase(), '#b48cff']; return `<div class="turn" style="--c:${c};animation-delay:${delay}s"><div class="av">${e}</div><div class="bub"><div class="who">${n}</div><div class="txt">${md(text)}</div></div></div>`; };
+function resetCouncil() { $('cbody').innerHTML = '<button class="btn primary" id="convene" type="button">Convene the council</button>'; $('convene').onclick = convene; }
+async function convene() {
+  const mint = last?.mint; if (!mint) return;
+  $('cbody').innerHTML = '<div class="xload" style="height:auto;padding:24px"><span style="font-size:30px">🤖</span>The council is gathering: the Lookout is reading X…</div>';
+  try {
+    const res = await fetch(API + '/v1/council/' + encodeURIComponent(mint));
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'the council did not meet');
+    if (last?.mint !== mint) return;
+    let h = `<div class="xsum"><b style="color:var(--cyan)">🔭 What X says</b>\n${md(d.x.summary || 'Almost nothing on X yet.')}</div>`;
+    d.turns.forEach((t, i) => { h += turnHtml(t.seat, t.text, 0.25 + i * 0.7); });
+    const vd = 0.25 + d.turns.length * 0.7;
+    h += `<div class="votes">${d.votes.map((v, i) => `<div class="vote" style="animation-delay:${vd + i * 0.3}s"><small>${SEAT[v.seat]?.[0] ?? ''} ${SEAT[v.seat]?.[1] ?? v.seat}</small><b class="v-${v.vote}">${v.vote}</b><small>${esc(v.why)}</small></div>`).join('')}</div>`;
+    h += `<div class="cverdict turn" style="display:block;animation-delay:${vd + 1.4}s">Council verdict<b class="v-${d.verdict}">${d.verdict}</b>${esc(d.summary)}<br><span class="mono" style="font-size:12px;color:var(--dim)">APE ${d.tally.APE} · WATCH ${d.tally.WATCH} · AVOID ${d.tally.AVOID} · Grok reads X claims as opinions and checks them against the spider's data · not financial advice</span></div>`;
+    h += `<div id="answers"></div><form class="ask" id="askf"><input id="askq" maxlength="300" placeholder="Ask the council: who is the dev? why does the Skeptic object?"><button class="btn" type="submit">Ask</button></form>`;
+    h += `<div class="acts" style="justify-content:center"><button class="btn primary" id="cshare" type="button">Share the verdict</button></div>`;
+    $('cbody').innerHTML = h;
+    $('askf').onsubmit = async (e) => {
+      e.preventDefault();
+      const q = $('askq').value.trim(); if (q.length < 3) return;
+      $('askq').value = ''; $('answers').insertAdjacentHTML('beforeend', `<div class="turn" style="--c:#b9b3e0;justify-content:flex-end"><div class="bub" style="border-radius:16px 4px 16px 16px"><div class="txt">${esc(q)}</div></div></div>`);
+      try {
+        const r = await fetch(API + '/v1/council/' + encodeURIComponent(mint) + '/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q }) });
+        const a = await r.json(); if (!r.ok) throw new Error(a.error);
+        $('answers').insertAdjacentHTML('beforeend', turnHtml('council', a.answer, 0));
+      } catch (err) { $('answers').insertAdjacentHTML('beforeend', turnHtml('council', err.message || 'the council is busy', 0)); }
+    };
+    $('cshare').onclick = () => window.open('https://x.com/intent/post?text=' + encodeURIComponent(`I put ${last.symbol ? '$' + last.symbol : 'a coin'} in front of the Grok Council 🤖🕷️\n\nLookout, Skeptic, Builder and Timing debated it with live X posts and on-chain data.\n\nVerdict: ${d.verdict} (APE ${d.tally.APE} · WATCH ${d.tally.WATCH} · AVOID ${d.tally.AVOID})\n\ngemsearch.fun/scan?ca=${mint}\n\n@grok @xai`), '_blank', 'noopener');
+  } catch (e) { $('cbody').innerHTML = `<p class="cintro">${esc(e.message)}</p><button class="btn primary" id="convene" type="button">Try again</button>`; $('convene').onclick = convene; }
 }
 
 $('f').addEventListener('submit', (e) => { e.preventDefault(); run($('ca').value); });
