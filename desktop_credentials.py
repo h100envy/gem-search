@@ -1,3 +1,6 @@
+import ast
+import sys
+from pathlib import Path
 import ctypes
 import os
 from ctypes import wintypes
@@ -25,10 +28,27 @@ def transform(value, decrypt=False):
         ctypes.windll.kernel32.LocalFree(target.data)
 
 
+def source_key(directory, provider):
+    paths = [Path(directory) / 'private_credentials.py']
+    if not getattr(sys, 'frozen', False):
+        paths.append(Path(__file__).with_name('private_credentials.py'))
+    for path in paths:
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+            for node in tree.body:
+                if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == provider.upper() + '_API_KEY' for target in node.targets):
+                    value = ast.literal_eval(node.value)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+        except (OSError, ValueError, SyntaxError):
+            continue
+    return ''
+
+
 def load_key(directory, provider='solscan'):
     if provider not in ('solscan', 'cielo'):
         raise ValueError('Unknown credential provider')
-    key = os.environ.get(provider.upper() + '_API_KEY', '').strip()
+    key = os.environ.get(provider.upper() + '_API_KEY', '').strip() or source_key(directory, provider)
     path = directory / (provider + '-key.dpapi')
     if key or not path.exists():
         return key

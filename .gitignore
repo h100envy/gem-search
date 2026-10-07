@@ -20,3 +20,5 @@ data/*.lock
 data/launch-paused
 data/*.pid
 topics.json
+
+private_credentials.py
