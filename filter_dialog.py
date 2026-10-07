@@ -1,5 +1,6 @@
 import math
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QComboBox, QCheckBox, QPushButton, QMessageBox
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QComboBox, QCheckBox, QPushButton, QMessageBox, QWidget, QScrollArea, QSizePolicy, QApplication
+from PySide6.QtCore import Qt
 from token_filters import DEFAULTS, RANGES
 from chains import CHAINS
 
@@ -8,13 +9,22 @@ class FilterDialog(QDialog):
     def __init__(self, settings, exchanges, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Customize filters')
-        self.setMinimumWidth(520)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('Solana  ·  Liquidity ≥ $10,000  ·  Market cap ≥ $40,000'))
+        outer = QVBoxLayout(self)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 8, 0)
+        summary = QLabel('Liquidity minimum $10,000 | Market cap minimum $40,000')
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
         self.chain = QComboBox()
         self.chain.addItem('All supported chains', '')
         for chain in CHAINS:
             self.chain.addItem(chain.capitalize(), chain)
+        self.chain.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.chain)
         options = QHBoxLayout()
         self.timeframe = QComboBox()
@@ -27,6 +37,8 @@ class FilterDialog(QDialog):
         self.dex.addItem('All exchanges', '')
         for exchange in sorted(set(exchanges)):
             self.dex.addItem(exchange, exchange)
+        for combo in [self.timeframe, self.sort, self.dex]:
+            combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         options.addWidget(self.timeframe)
         options.addWidget(self.sort)
         options.addWidget(self.dex)
@@ -55,7 +67,11 @@ class FilterDialog(QDialog):
         self.boosted = QCheckBox('Boosted only')
         layout.addWidget(self.confirmed)
         layout.addWidget(self.boosted)
-        layout.addWidget(QLabel('Filters use the selected pair. Pair age is not token age.\nTrader counts, ads and proprietary trending scores are unavailable.'))
+        explanation = QLabel('Filters use the selected pair. Pair age is not token age.\nTrader counts, ads and proprietary trending scores are unavailable.')
+        explanation.setWordWrap(True)
+        layout.addWidget(explanation)
+        self.scroll.setWidget(content)
+        outer.addWidget(self.scroll, 1)
         buttons = QHBoxLayout()
         reset = QPushButton('Reset')
         reset.clicked.connect(lambda: self.load(DEFAULTS))
@@ -67,7 +83,13 @@ class FilterDialog(QDialog):
         buttons.addStretch()
         buttons.addWidget(cancel)
         buttons.addWidget(apply)
-        layout.addLayout(buttons)
+        outer.addLayout(buttons)
+        screen = (parent.screen() if parent else QApplication.primaryScreen()).availableGeometry()
+        width = min(560, screen.width() - 64, parent.width() - 32 if parent else 560)
+        height = min(620, screen.height() - 80, parent.height() - 80 if parent else 620)
+        self.setMinimumSize(min(320, width), min(240, height))
+        self.setMaximumSize(width, height)
+        self.resize(width, height)
         self.load(settings)
 
     def load(self, settings):
