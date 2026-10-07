@@ -232,6 +232,7 @@ class DesktopWindow(QMainWindow):
         self.pages = {}
         self.page_labels = {}
         self.page_buttons = {}
+        self.page_sizes = {}
         self.total_counts = {}
         self.setWindowTitle('Gem Search · Token Monitor')
         self.setWindowIcon(icon())
@@ -304,6 +305,24 @@ class DesktopWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search token name, chain or address')
         self.search.textChanged.connect(self.filter_changed)
+        self.token_sort = QComboBox()
+        for label, value in [('Top market cap', 'cap'), ('Newest tokens', 'newest'), ('Name', 'name')]:
+            self.token_sort.addItem(label, value)
+        self.token_sort.currentIndexChanged.connect(self.filter_changed)
+        self.minimum_cap = QComboBox()
+        for label, value in [('Any market cap', 0), ('$1M and above', 1000000), ('$10M and above', 10000000), ('$100M and above', 100000000)]:
+            self.minimum_cap.addItem(label, value)
+        self.minimum_cap.currentIndexChanged.connect(self.filter_changed)
+        self.confirmed_only = QCheckBox('Confirmed mint only')
+        self.confirmed_only.toggled.connect(self.filter_changed)
+        self.filter_panel = QWidget()
+        filter_options = QHBoxLayout(self.filter_panel)
+        filter_options.setContentsMargins(0, 0, 0, 0)
+        filter_options.addWidget(QLabel('Sort'))
+        filter_options.addWidget(self.token_sort)
+        filter_options.addWidget(self.minimum_cap)
+        filter_options.addWidget(self.confirmed_only)
+        self.filter_panel.hide()
         for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
             page = QWidget()
             box = QVBoxLayout(page)
@@ -316,7 +335,14 @@ class DesktopWindow(QMainWindow):
                 self.connection_button = QPushButton('Connect data')
                 self.connection_button.clicked.connect(self.open_connection)
                 box.addWidget(self.connection_button)
-                box.addWidget(self.search)
+                search_controls = QHBoxLayout()
+                search_controls.addWidget(self.search, 1)
+                self.filter_button = QPushButton('Filter')
+                self.filter_button.setCheckable(True)
+                self.filter_button.toggled.connect(self.filter_panel.setVisible)
+                search_controls.addWidget(self.filter_button)
+                box.addLayout(search_controls)
+                box.addWidget(self.filter_panel)
             if name == 'Saved tokens':
                 history_notice = QLabel('Saved history from earlier versions. These values are historical provider data, excluded from live Solscan results and new alerts.')
                 history_notice.setWordWrap(True)
@@ -332,7 +358,7 @@ class DesktopWindow(QMainWindow):
             table.horizontalHeader().setStretchLastSection(True)
             table.verticalHeader().setDefaultSectionSize(50)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             table.setShowGrid(False)
             table.setWordWrap(True)
             table.verticalHeader().hide()
@@ -354,6 +380,14 @@ class DesktopWindow(QMainWindow):
                 explorer.clicked.connect(lambda checked=False, target=table: self.open_explorer(target))
                 actions.addWidget(explorer)
             actions.addStretch()
+            page_size = QComboBox()
+            page_size.setAccessibleName(name + ' rows per page')
+            for count in (50, 100):
+                page_size.addItem(str(count) + ' per page', count)
+            page_size.setCurrentIndex(1 if store.get('page_size_' + name, 50) == 100 else 0)
+            self.page_sizes[name] = page_size
+            page_size.currentIndexChanged.connect(lambda index, target=name: self.change_page_size(target))
+            actions.addWidget(page_size)
             page_label = QLabel()
             actions.addWidget(page_label)
             previous = QPushButton('Previous')
@@ -555,7 +589,7 @@ class DesktopWindow(QMainWindow):
     def fill_table(self, table, records, values):
         name = next(name for name, target in self.tables.items() if target is table)
         self.total_counts[name] = len(records)
-        size = max(1, table.viewport().height() // 50)
+        size = self.page_sizes[name].currentData()
         page = min(self.pages.get(name, 0), max(0, (len(records) - 1) // size))
         self.pages[name] = page
         start = page * size
@@ -589,8 +623,16 @@ class DesktopWindow(QMainWindow):
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
+        minimum = self.minimum_cap.currentData()
+        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (r.get('market_cap_usd') is not None and r['market_cap_usd'] >= minimum)) and (not self.confirmed_only.isChecked() or r.get('verification_status', '').startswith('Mint and decimals confirmed'))]
+        if self.token_sort.currentData() == 'cap':
+            filtered.sort(key=lambda r: (-(r['market_cap_usd'] if r.get('market_cap_usd') is not None else -1), r['name'].casefold(), r['address']))
+        elif self.token_sort.currentData() == 'newest':
+            filtered.sort(key=lambda r: -(r.get('token_created_at') or 0))
+        else:
+            filtered.sort(key=lambda r: (r['name'].casefold(), r['address']))
         values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), money(r.get('net_inflow_m5_usd')) if r.get('net_inflow_m5_usd') is not None else 'Pending validation', stamp(r.get('flow_updated_at'))]
-        self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
+        self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
         self.fill_table(self.tables['Saved tokens'], snapshot['tokens'], lambda r: [r['name'], r['chain'].upper(), r.get('market_cap_source', 'Unknown historical source'), money(r.get('market_cap_usd')), money(r.get('price_usd')), stamp(r.get('market_cap_updated_at'))])
@@ -615,6 +657,12 @@ class DesktopWindow(QMainWindow):
 
     def turn_page(self, name, direction):
         self.pages[name] = max(0, self.pages.get(name, 0) + direction)
+        self.refresh()
+
+    def change_page_size(self, name):
+        self.pages[name] = 0
+        self.save_setting('page_size_' + name, self.page_sizes[name].currentData())
+        self.tables[name].verticalScrollBar().setValue(0)
         self.refresh()
 
     def set_on_top(self, enabled):
