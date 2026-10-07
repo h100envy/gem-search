@@ -9,7 +9,7 @@ import queue
 from pathlib import Path
 from urllib.parse import quote
 from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices, QShortcut, QKeySequence
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget, QPlainTextEdit
 from market_metrics import current_flow
 from token_filters import DEFAULTS, matches, sort_key, activity_values, filter_summary
@@ -136,7 +136,7 @@ class KOLWalletPage(QWidget):
         self.imported = []
         self.page = 0
         box = QVBoxLayout(self)
-        self.notice = QLabel('50 saved wallets · ' + CAPTURED + '\nDirectory snapshot. Live wallet trade tracking is unavailable.')
+        self.notice = QLabel('50 saved wallets · ' + CAPTURED + '\nSelect a wallet to track finalized balance activity. Names come from a saved directory snapshot.')
         self.notice.setWordWrap(True)
         box.addWidget(self.notice)
         self.search = QLineEdit()
@@ -479,6 +479,10 @@ class DesktopWindow(QMainWindow):
             self.tables[name] = table
             self.tabs.addTab(page, name)
         self.kol_page = KOLWalletPage(store.directory)
+        track_directory = QPushButton('Track selected wallet')
+        track_directory.setObjectName('primary')
+        track_directory.clicked.connect(self.track_directory_wallet)
+        self.kol_page.layout().addWidget(track_directory)
         self.tabs.addTab(self.kol_page, 'Wallet directory')
         feed_page = QWidget()
         feed_box = QVBoxLayout(feed_page)
@@ -514,16 +518,44 @@ class DesktopWindow(QMainWindow):
         self.wallet_status = QLabel()
         self.wallet_status.setWordWrap(True)
         activity_box.addWidget(self.wallet_status)
-        activity_intro = QLabel('Watch a Solana token and start monitoring to collect its selected pool transactions. This preview shows finalized signer token balance changes. Transfers and deposits can appear here; buy/sell decoding and bot classification are not yet available. Initial history is limited to 100 transactions per pool.')
+        activity_intro = QLabel('Track a wallet or watch a Solana token, then start monitoring. Activity shows finalized balance changes. SOL changes include fees. Incoming token coverage is partial. Buy/sell decoding and bot classification are not yet available. Initial history covers up to 100 transactions per target.')
         activity_intro.setWordWrap(True)
         activity_box.addWidget(activity_intro)
+        wallet_controls = QHBoxLayout()
+        self.wallet_address = QLineEdit()
+        self.wallet_address.setPlaceholderText('Paste a Solana wallet address')
+        wallet_controls.addWidget(self.wallet_address, 1)
+        track_wallet = QPushButton('Track wallet')
+        track_wallet.setObjectName('primary')
+        track_wallet.clicked.connect(self.track_entered_wallet)
+        self.wallet_address.returnPressed.connect(self.track_entered_wallet)
+        wallet_controls.addWidget(track_wallet)
+        self.wallet_selector = QComboBox()
+        self.wallet_selector.addItem('All activity', '')
+        self.wallet_selector.currentIndexChanged.connect(self.refresh)
+        wallet_controls.addWidget(self.wallet_selector)
+        self.stop_wallet = QPushButton('Stop tracking')
+        self.stop_wallet.clicked.connect(self.untrack_wallet)
+        wallet_controls.addWidget(self.stop_wallet)
+        activity_box.addLayout(wallet_controls)
         self.wallet_table = QTableView()
-        self.wallet_table.setModel(TokenTableModel(['Time', 'Wallet', 'Token', 'Token change', 'Classification', 'Transaction'], self.wallet_table))
+        self.wallet_table.setModel(TokenTableModel(['Time', 'Wallet', 'Token', 'Balance change', 'Classification', 'Transaction'], self.wallet_table))
         self.wallet_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.wallet_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.wallet_table.setShowGrid(False)
+        self.wallet_table.setWordWrap(False)
+        self.wallet_table.setAlternatingRowColors(True)
+        self.wallet_table.verticalHeader().hide()
+        self.wallet_table.verticalHeader().setDefaultSectionSize(40)
         self.wallet_table.doubleClicked.connect(self.open_wallet_transaction)
         activity_box.addWidget(self.wallet_table, 1)
+        self.wallet_empty = QLabel('Choose a wallet to track, then start monitoring.')
+        self.wallet_empty.setWordWrap(True)
+        self.wallet_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.wallet_empty.setObjectName('emptyState')
+        activity_box.addWidget(self.wallet_empty, 1)
         self.tabs.addTab(chain_activity, 'On-chain activity')
+        self.wallet_activity_tab = self.tabs.indexOf(chain_activity)
         mcp_page = QWidget()
         mcp_box = QVBoxLayout(mcp_page)
         mcp_box.setSpacing(16)
@@ -622,6 +654,8 @@ class DesktopWindow(QMainWindow):
         self.tabs.currentChanged.connect(lambda index: self.page_title.setText(self.tabs.tabText(index)))
         self.tabs.currentChanged.connect(self.refresh)
         self.navigation.setCurrentRow(0)
+        self.escape_shortcut = QShortcut(QKeySequence('Escape'), self)
+        self.escape_shortcut.activated.connect(self.go_back)
         self.tray = QSystemTrayIcon(icon(), self)
         self.tray.setToolTip('Gem Search Token Monitor')
         menu = QMenu()
@@ -669,6 +703,45 @@ class DesktopWindow(QMainWindow):
                 self.ingestion.poll(lambda: not self.stop.is_set() and self.monitor.status()['enabled'])
             except Exception as error:
                 self.ingestion.state['error'] = 'Wallet collection delayed: ' + type(error).__name__
+
+    def go_back(self):
+        if self.tabs.currentIndex() != 0:
+            self.tabs.setCurrentIndex(0)
+        elif self.search.text():
+            self.search.clear()
+            self.search.setFocus()
+        else:
+            self.showMinimized()
+
+    def track_directory_wallet(self):
+        row = self.kol_page.selected()
+        if row:
+            self.add_tracked_wallet(row['address'], row['name'])
+
+    def track_entered_wallet(self):
+        self.add_tracked_wallet(self.wallet_address.text().strip())
+
+    def add_tracked_wallet(self, address, name=''):
+        try:
+            self.ingestion.track(address, name)
+            self.wallet_address.clear()
+            self.tabs.setCurrentIndex(self.wallet_activity_tab)
+            if self.background:
+                self.store_snapshot['wallet_activity'] = self.ingestion.snapshot()
+            self.refresh()
+            index = self.wallet_selector.findData(address)
+            if index >= 0:
+                self.wallet_selector.setCurrentIndex(index)
+        except (ValueError, OSError) as error:
+            QMessageBox.information(self, 'Wallet tracking', str(error))
+
+    def untrack_wallet(self):
+        address = self.wallet_selector.currentData()
+        if address:
+            self.ingestion.untrack(address)
+            if self.background:
+                self.store_snapshot['wallet_activity'] = self.ingestion.snapshot()
+            self.refresh()
 
     def storage_worker(self):
         while not self.stop.is_set():
@@ -792,8 +865,23 @@ class DesktopWindow(QMainWindow):
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
         activity = snapshot.get('wallet_activity', {}) if self.background else self.ingestion.snapshot()
         ingestion_state, counts = activity.get('status', {}), activity.get('counts', {})
-        self.wallet_status.setText(str(ingestion_state.get('pools', 0)) + ' watched pools · ' + str(counts.get('complete', 0)) + ' collected · ' + str(counts.get('pending', 0)) + ' queued · ' + str(counts.get('failed', 0)) + ' failed transactions · Last collection: ' + stamp(ingestion_state.get('sampled_at')) + (' · ' + ingestion_state['error'] if ingestion_state.get('error') else ''))
-        self.wallet_table.model().replace(activity.get('events', []), lambda row: [stamp(row['block_time']), row['wallet'], row['mint'], row['delta'], row['classification'], row['signature']])
+        self.wallet_status.setText(str(len(activity.get('tracked', []))) + ' tracked wallets · ' + str(ingestion_state.get('pools', 0)) + ' watched pools · ' + str(counts.get('complete', 0)) + ' collected · ' + str(counts.get('pending', 0)) + ' queued · ' + str(counts.get('failed', 0)) + ' failed transactions excluded · Last collection: ' + stamp(ingestion_state.get('sampled_at')) + (' · ' + ingestion_state['error'] if ingestion_state.get('error') else ''))
+        options = [('All activity', '')] + [(row['name'] if row['name'] != row['address'] else row['address'][:8] + '...' + row['address'][-6:], row['address']) for row in activity.get('tracked', [])]
+        if options != [(self.wallet_selector.itemText(i), self.wallet_selector.itemData(i)) for i in range(self.wallet_selector.count())]:
+            selected_wallet = self.wallet_selector.currentData()
+            self.wallet_selector.blockSignals(True)
+            self.wallet_selector.clear()
+            for label, address in options:
+                self.wallet_selector.addItem(label, address)
+            self.wallet_selector.setCurrentIndex(max(0, self.wallet_selector.findData(selected_wallet)))
+            self.wallet_selector.blockSignals(False)
+        selected_wallet = self.wallet_selector.currentData()
+        self.stop_wallet.setEnabled(bool(selected_wallet))
+        events = activity.get('wallet_events', {}).get(selected_wallet, []) if selected_wallet else activity.get('events', [])
+        self.wallet_table.model().replace(events, lambda row: [stamp(row['block_time']), row['wallet'], row['mint'], row['delta'], row['classification'], row['signature']])
+        self.wallet_table.setVisible(bool(events))
+        self.wallet_empty.setVisible(not events)
+        self.wallet_empty.setText('No balance changes collected yet. Failed transactions do not change balances.\nQueued transactions will appear after processing.' if activity.get('tracked') or ingestion_state.get('pools') else 'Choose a wallet to track, then start monitoring.')
         tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000 and (current_value(r, 'liquidity_usd', 'statistics_sampled_at') or 0) >= 10000]
         connected = bool(self.monitor.client.key)
         self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum with $10,000 liquidity. Waiting for data.' if not tokens else '')

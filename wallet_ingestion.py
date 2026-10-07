@@ -20,7 +20,7 @@ def rpc(method, params):
     return response['result']
 
 
-def balance_events(transaction, signature):
+def balance_events(transaction, signature, wallets=()):
     meta = transaction.get('meta')
     if not isinstance(meta, dict) or meta.get('err') is not None:
         return []
@@ -53,7 +53,7 @@ def balance_events(transaction, signature):
     totals = {}
     for key, amounts in balances.items():
         owner = owners.get(key)
-        if owner not in signers or not address_key('solana', owner):
+        if (owner not in signers and owner not in wallets) or not address_key('solana', owner):
             continue
         identity = (owner, key[1], decimals[key])
         totals[identity] = totals.get(identity, 0) + amounts.get('postTokenBalances', 0) - amounts.get('preTokenBalances', 0)
@@ -63,6 +63,17 @@ def balance_events(transaction, signature):
         for (owner, mint, places), delta in totals.items():
             if delta:
                 events.append({'signature': signature, 'wallet': owner, 'mint': mint, 'delta_raw': str(delta), 'delta': str(Decimal(delta).scaleb(-places)), 'decimals': places, 'slot': transaction['slot'], 'block_time': transaction.get('blockTime'), 'classification': 'Unknown', 'kind': 'Token balance change'})
+        before, after = meta.get('preBalances'), meta.get('postBalances')
+        if isinstance(before, list) and isinstance(after, list) and len(before) == len(after) == len(keys):
+            for index, key in enumerate(keys):
+                owner = key.get('pubkey') if isinstance(key, dict) else key
+                if owner not in signers and owner not in wallets:
+                    continue
+                if type(before[index]) is not int or type(after[index]) is not int or min(before[index], after[index]) < 0:
+                    raise ValueError('Invalid native balance')
+                delta = after[index] - before[index]
+                if delta:
+                    events.append({'signature': signature, 'wallet': owner, 'mint': 'SOL', 'delta_raw': str(delta), 'delta': str(Decimal(delta).scaleb(-9)), 'decimals': 9, 'slot': transaction['slot'], 'block_time': transaction.get('blockTime'), 'classification': 'Unknown', 'kind': 'SOL balance change including fees'})
     return events
 
 
@@ -78,8 +89,26 @@ class WalletIngestion:
             CREATE TABLE IF NOT EXISTS wallet_transactions (signature TEXT PRIMARY KEY,state TEXT NOT NULL DEFAULT 'pending',payload TEXT,attempts INTEGER NOT NULL DEFAULT 0,retry_at REAL NOT NULL DEFAULT 0,error TEXT);
             CREATE TABLE IF NOT EXISTS wallet_pool_transactions (pool TEXT,signature TEXT,PRIMARY KEY(pool,signature));
             CREATE TABLE IF NOT EXISTS wallet_balance_events (signature TEXT,wallet TEXT,mint TEXT,payload TEXT,PRIMARY KEY(signature,wallet,mint));
+            CREATE TABLE IF NOT EXISTS wallet_tracking (address TEXT PRIMARY KEY,name TEXT,created REAL);
             ''')
-        self.state = {'error': None, 'sampled_at': None, 'pools': 0}
+        self.state = {'error': None, 'sampled_at': None, 'pools': 0, 'wallets': 0}
+
+    def tracked(self):
+        with self.store.connect() as con:
+            return [dict(row) for row in con.execute('SELECT * FROM wallet_tracking ORDER BY created')]
+
+    def track(self, address, name=''):
+        if not address_key('solana', address):
+            raise ValueError('Enter a valid Solana wallet address')
+        with self.store.connect() as con:
+            if con.execute('SELECT COUNT(*) FROM wallet_tracking').fetchone()[0] >= 20 and not con.execute('SELECT 1 FROM wallet_tracking WHERE address=?', (address,)).fetchone():
+                raise ValueError('This preview supports 20 tracked wallets')
+            con.execute('INSERT OR IGNORE INTO wallet_tracking VALUES (?,?,?)', (address, name or address, time.time()))
+
+    def untrack(self, address):
+        with self.store.connect() as con:
+            con.execute('DELETE FROM wallet_tracking WHERE address=?', (address,))
+
 
     def discover(self, pool):
         with self.store.connect() as con:
@@ -100,18 +129,22 @@ class WalletIngestion:
                 signature = row['signature']
                 con.execute('INSERT OR IGNORE INTO wallet_transactions(signature,state) VALUES (?,?)', (signature, 'failed' if row.get('err') is not None else 'pending'))
                 con.execute('INSERT OR IGNORE INTO wallet_pool_transactions VALUES (?,?)', (pool, signature))
+                if con.execute('SELECT 1 FROM wallet_tracking WHERE address=?', (pool,)).fetchone():
+                    con.execute("UPDATE wallet_transactions SET state='pending',retry_at=0 WHERE signature=? AND state='complete'", (signature,))
             con.execute('INSERT OR REPLACE INTO wallet_cursors VALUES (?,?,?,?,?)', (pool, pending_tip if complete else cursor.get('tip'), None if complete else rows[-1]['signature'], None if complete else pending_tip, time.time()))
 
     def process(self, signature):
         try:
-            transaction = self.request('getTransaction', [signature, {'encoding': 'jsonParsed', 'commitment': 'finalized', 'maxSupportedTransactionVersion': 1}])
+            with self.store.connect() as con:
+                cached = con.execute('SELECT payload FROM wallet_transactions WHERE signature=?', (signature,)).fetchone()
+            transaction = json.loads(cached[0]) if cached and cached[0] else self.request('getTransaction', [signature, {'encoding': 'jsonParsed', 'commitment': 'finalized', 'maxSupportedTransactionVersion': 1}])
             if transaction is None:
                 raise ValueError('Transaction not available yet')
             if not isinstance(transaction, dict) or type(transaction.get('slot')) is not int or not isinstance(transaction.get('meta'), dict):
                 raise ValueError('Invalid transaction response')
             if signature not in transaction.get('transaction', {}).get('signatures', []):
                 raise ValueError('Transaction signature mismatch')
-            events = balance_events(transaction, signature)
+            events = balance_events(transaction, signature, {row['address'] for row in self.tracked()})
             with self.store.connect() as con:
                 con.execute('UPDATE wallet_transactions SET state=?,payload=?,error=NULL WHERE signature=?', ('failed' if transaction['meta'].get('err') is not None else 'complete', json.dumps(transaction), signature))
                 for event in events:
@@ -129,23 +162,31 @@ class WalletIngestion:
         watched = {address for chain, address in self.store.watchlist() if chain == 'solana'}
         pools = list(dict.fromkeys(row.get('market_pair') for row in self.store.tokens() if row.get('chain') == 'solana' and row['address'] in watched and address_key('solana', row.get('market_pair'))))
         self.state['pools'] = len(pools)
-        if pools:
-            pool = pools[self.rotation % len(pools)]
+        wallets = [row['address'] for row in self.tracked()]
+        self.state['wallets'] = len(wallets)
+        targets = list(dict.fromkeys(wallets + pools))
+        if targets:
+            pool = targets[self.rotation % len(targets)]
             self.rotation += 1
             try:
                 self.discover(pool)
                 self.state['sampled_at'] = time.time()
             except (ValueError, OSError) as error:
-                self.state['error'] = 'Pool collection delayed: ' + type(error).__name__
+                self.state['error'] = 'Activity collection delayed: ' + type(error).__name__
+        if not targets:
+            return
         with self.store.connect() as con:
-            pending = [row[0] for row in con.execute("SELECT signature FROM wallet_transactions WHERE state='pending' AND retry_at<=? ORDER BY attempts,rowid LIMIT 6", (time.time(),))]
+            placeholders = ','.join('?' for target in targets)
+            pending = [row[0] for row in con.execute("SELECT t.signature FROM wallet_transactions t WHERE t.state='pending' AND t.retry_at<=? AND EXISTS (SELECT 1 FROM wallet_pool_transactions p WHERE p.signature=t.signature AND p.pool IN (" + placeholders + ")) ORDER BY t.attempts,t.rowid LIMIT 6", [time.time(), *targets])]
         for signature in pending:
             if not active():
                 return
             self.process(signature)
 
     def snapshot(self):
+        tracked = self.tracked()
         with self.store.connect() as con:
             counts = dict(con.execute('SELECT state,COUNT(*) FROM wallet_transactions GROUP BY state').fetchall())
             events = [json.loads(row[0]) for row in con.execute('SELECT payload FROM wallet_balance_events ORDER BY rowid DESC LIMIT 100')]
-        return {'status': dict(self.state), 'counts': counts, 'events': events}
+            wallet_events = {row['address']: [json.loads(event[0]) for event in con.execute('SELECT payload FROM wallet_balance_events WHERE wallet=? ORDER BY rowid DESC LIMIT 100', (row['address'],))] for row in tracked}
+        return {'status': dict(self.state), 'counts': counts, 'events': events, 'tracked': tracked, 'wallet_events': wallet_events}
