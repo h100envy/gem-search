@@ -5,6 +5,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,6 +16,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - run: python3 -m pip install -r requirements-desktop.txt
       - run: npm ci --ignore-scripts
       - run: python3 -m unittest discover -s tests -v
       - run: python3 tests/http_extension_smoke.py
