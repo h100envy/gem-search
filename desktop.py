@@ -9,11 +9,12 @@ from pathlib import Path
 from urllib.parse import quote
 from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget, QPlainTextEdit
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
 from solscan_monitor import SolscanMonitor
 from desktop_credentials import load_key, save_key
+from cielo_client import CieloClient
 from kolscan_directory import bundled_wallets, read_wallets, SOURCE, CAPTURED
 
 
@@ -22,7 +23,7 @@ def icon():
     pixmap.fill(QColor('#101114'))
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    for color, x, y in [('#4285F4', 14, 14), ('#EA4335', 34, 14), ('#FBBC05', 14, 34), ('#34A853', 34, 34)]:
+    for color, x, y in [('#4285F4', 14, 14), ('#EA4335', 34, 14), ('#F58220', 14, 34), ('#34A853', 34, 34)]:
         painter.setPen(QColor(color))
         painter.setBrush(QColor(color))
         painter.drawEllipse(x, y, 16, 16)
@@ -129,6 +130,8 @@ class KOLWalletPage(QWidget):
         actions = QHBoxLayout()
         for label, callback in [('Copy wallet', self.copy_wallet), ('Solscan', lambda: self.open_wallet('https://solscan.io/account/')), ('Kolscan', lambda: self.open_wallet('https://kolscan.io/account/')), ('Import list', self.import_list), ('Current leaderboard', lambda: QDesktopServices.openUrl(QUrl(SOURCE)))]:
             button = QPushButton(label)
+            if label == 'Import list':
+                button.setObjectName('orange')
             button.clicked.connect(callback)
             actions.addWidget(button)
         actions.addStretch()
@@ -247,7 +250,7 @@ class DesktopWindow(QMainWindow):
         brand = QLabel('Gem Search')
         brand.setObjectName('brand')
         header.addWidget(brand)
-        accent = QLabel('<span style="color:#4285F4">●</span> <span style="color:#EA4335">●</span> <span style="color:#FBBC05">●</span> <span style="color:#34A853">●</span>')
+        accent = QLabel('<span style="color:#4285F4">●</span> <span style="color:#EA4335">●</span> <span style="color:#F58220">●</span> <span style="color:#34A853">●</span>')
         header.addWidget(accent)
         header.addStretch()
         self.control_buttons = {}
@@ -365,10 +368,58 @@ class DesktopWindow(QMainWindow):
             self.tables[name] = table
             self.tabs.addTab(page, name)
         self.kol_page = KOLWalletPage(store.directory)
-        self.tabs.addTab(self.kol_page, 'KOL wallets')
+        self.tabs.addTab(self.kol_page, 'Wallet directory')
+        feed_page = QWidget()
+        feed_box = QVBoxLayout(feed_page)
+        feed_box.setSpacing(16)
+        self.cielo_status = QLabel('Connect Cielo in Settings, then load your Solana transaction feed. Requests use your Cielo API credits.')
+        self.cielo_status.setWordWrap(True)
+        feed_box.addWidget(self.cielo_status)
+        feed_actions = QHBoxLayout()
+        self.cielo_feed_button = QPushButton('Load my Cielo feed')
+        self.cielo_feed_button.setObjectName('primary')
+        self.cielo_feed_button.clicked.connect(lambda: self.load_cielo_feed())
+        feed_actions.addWidget(self.cielo_feed_button)
+        wallet_feed = QPushButton('Load selected wallet')
+        wallet_feed.clicked.connect(self.load_selected_cielo_wallet)
+        feed_actions.addWidget(wallet_feed)
+        feed_actions.addStretch()
+        feed_box.addLayout(feed_actions)
+        self.cielo_output = QPlainTextEdit()
+        self.cielo_output.setReadOnly(True)
+        self.cielo_output.setPlaceholderText('Your Cielo feed will appear here after a successful API request. Response format will be validated with your account before trade parsing is enabled.')
+        feed_box.addWidget(self.cielo_output, 1)
+        self.cielo_signals = StoreSignals(self)
+        self.cielo_signals.snapshot.connect(self.accept_cielo_feed, Qt.ConnectionType.QueuedConnection)
+        self.cielo_signals.error.connect(self.cielo_feed_error, Qt.ConnectionType.QueuedConnection)
+        self.cielo_busy = False
+        self.cielo_tab = self.tabs.addTab(feed_page, 'Cielo feed')
         settings_page = QWidget()
         settings = QVBoxLayout(settings_page)
         settings.setSpacing(18)
+        settings.addWidget(QLabel('CIELO CONNECTION\nWallet activity comes from Cielo. Enter the key from build.cielo.finance locally.'))
+        self.cielo_key = QLineEdit()
+        self.cielo_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cielo_key.setPlaceholderText('Enter your Cielo API key locally')
+        settings.addWidget(self.cielo_key)
+        cielo_save = QPushButton('Save Cielo connection')
+        cielo_save.clicked.connect(self.connect_cielo)
+        settings.addWidget(cielo_save)
+        cielo_login = QPushButton('Open Cielo API portal')
+        cielo_login.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://build.cielo.finance')))
+        settings.addWidget(cielo_login)
+        self.cielo_connection = QLabel('Cielo key saved locally' if load_key(store.directory, 'cielo') else 'Cielo key not configured')
+        settings.addWidget(self.cielo_connection)
+        self.solscan_connection = QLabel('Solscan key saved locally' if self.monitor.client.key else 'Solscan key not configured')
+        settings.addWidget(self.solscan_connection)
+        settings.addWidget(QLabel('SOLSCAN CONNECTION\nAll token data comes from Solscan. Direct blockchain reads verify mint identity and decimals.\nSolscan price and market cap remain provider data, not independently verified prices.'))
+        self.solscan_key = QLineEdit()
+        self.solscan_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.solscan_key.setPlaceholderText('Enter your Solscan API key locally')
+        settings.addWidget(self.solscan_key)
+        connect = QPushButton('Save Solscan connection')
+        connect.clicked.connect(self.connect_solscan)
+        settings.addWidget(connect)
         settings.addWidget(QLabel('Monitoring duration'))
         settings.addWidget(self.duration)
         settings.addWidget(keep_on_top)
@@ -378,14 +429,6 @@ class DesktopWindow(QMainWindow):
         self.notifications.setChecked(store.get('notifications', True))
         self.notifications.toggled.connect(lambda value: self.save_setting('notifications', value))
         settings.addWidget(self.notifications)
-        settings.addWidget(QLabel('SOLSCAN CONNECTION\nAll token data comes from Solscan. Direct blockchain reads verify mint identity and decimals.\nSolscan price and market cap remain provider data, not independently verified prices.'))
-        self.solscan_key = QLineEdit()
-        self.solscan_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.solscan_key.setPlaceholderText('Enter your Solscan API key locally')
-        settings.addWidget(self.solscan_key)
-        connect = QPushButton('Save Solscan connection')
-        connect.clicked.connect(self.connect_solscan)
-        settings.addWidget(connect)
         test = QPushButton('Test desktop notification')
         test.clicked.connect(self.test_notification)
         settings.addWidget(test)
@@ -602,6 +645,57 @@ class DesktopWindow(QMainWindow):
     def open_market(self, table):
         self.open_explorer(table)
 
+    def connect_cielo(self):
+        key = self.cielo_key.text().strip()
+        if not key:
+            QMessageBox.information(self, 'Cielo', 'Enter your Cielo key in this local password field.')
+            return
+        try:
+            save_key(self.store.directory, key, 'cielo')
+            self.cielo_key.clear()
+            self.cielo_connection.setText('Cielo key saved locally. Load the feed to test access.')
+            self.cielo_connection.setStyleSheet('color:#188038')
+        except (ValueError, OSError):
+            QMessageBox.information(self, 'Cielo', 'The local credential could not be saved.')
+
+    def load_selected_cielo_wallet(self):
+        wallet = self.kol_page.selected()
+        if not wallet:
+            self.tabs.setCurrentWidget(self.kol_page)
+            QMessageBox.information(self, 'Select wallet', 'Select a wallet in the directory, then use Load selected wallet in Cielo feed.')
+            return
+        self.load_cielo_feed(wallet['address'])
+
+    def load_cielo_feed(self, wallet=''):
+        if self.cielo_busy:
+            return
+        key = load_key(self.store.directory, 'cielo')
+        if not key:
+            self.open_connection()
+            self.cielo_key.setFocus()
+            return
+        self.tabs.setCurrentIndex(self.cielo_tab)
+        self.cielo_busy = True
+        self.cielo_feed_button.setEnabled(False)
+        self.cielo_status.setText('Loading Cielo wallet activity...')
+        def fetch():
+            try:
+                self.cielo_signals.snapshot.emit(CieloClient(key).feed(wallet))
+            except Exception as error:
+                self.cielo_signals.error.emit(str(error) if isinstance(error, ValueError) else 'Cielo feed could not be loaded')
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def accept_cielo_feed(self, result):
+        self.cielo_busy = False
+        self.cielo_feed_button.setEnabled(True)
+        self.cielo_status.setText('Cielo response received. Raw activity is shown pending validation of trade fields. Token valuations continue to use Solscan.')
+        self.cielo_output.setPlainText(json.dumps(result, indent=2, ensure_ascii=False))
+
+    def cielo_feed_error(self, message):
+        self.cielo_busy = False
+        self.cielo_feed_button.setEnabled(True)
+        self.cielo_status.setText(message)
+
     def connect_solscan(self):
         key = self.solscan_key.text().strip()
         if not key:
@@ -611,6 +705,7 @@ class DesktopWindow(QMainWindow):
             save_key(self.store.directory, key)
             self.monitor.set_key(key)
             self.solscan_key.clear()
+            self.solscan_connection.setText('Solscan key saved locally')
             self.status_label.setText('Solscan credential saved securely on this Windows account. Start monitoring to check access.')
         except (ValueError, OSError) as error:
             QMessageBox.information(self, 'Solscan connection', str(error))
@@ -688,6 +783,7 @@ def main():
     parser.add_argument('--data-dir')
     parser.add_argument('--smoke-test')
     parser.add_argument('--responsiveness-test')
+    parser.add_argument('--settings', action='store_true')
     args = parser.parse_args()
     if args.responsiveness_test:
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -696,39 +792,42 @@ def main():
     application.setApplicationName('Gem Search')
     application.setStyle('Fusion')
     application.setStyleSheet('''
-        QWidget{background:#101012;color:#f5f5f7;font-family:"Segoe UI";font-size:13px}
+        QWidget{background:#ffffff;color:#171717;font-family:"Segoe UI";font-size:13px}
         QLabel{background:transparent}
-        QWidget#topbar{background:#18181b;border-bottom:1px solid #2b2b30}
+        QPlainTextEdit{background:#ffffff;color:#171717;border:1px solid #d2d2d7;border-radius:12px;padding:12px}
+        QWidget#topbar{background:#fafafa;border-bottom:1px solid #e5e5e5}
         QLabel#brand{font-size:17px;font-weight:600;background:transparent}
         QLabel#pageTitle{font-size:32px;font-weight:600;letter-spacing:-1px;background:transparent}
         QLabel#eyebrow{color:#86868b;font-size:10px;font-weight:600;padding-bottom:12px}
-        QWidget#sidebar{background:#151518;border-right:1px solid #26262b}
+        QWidget#sidebar{background:#f5f5f7;border-right:1px solid #e4e4e7}
         QListWidget#navigation{background:transparent;border:none;outline:none;font-size:13px}
         QListWidget#navigation::item{padding:12px 10px;margin-bottom:4px;border-radius:8px}
-        QListWidget#navigation::item:selected{background:#29292e;color:#fff}
-        QListWidget#navigation::item:hover{background:#222226}
-        QLabel#status{color:#a1a1a6;font-size:11px;padding:8px 0;background:transparent}
-        QPushButton{background:#252528;border:1px solid #343438;padding:8px 14px;border-radius:16px;font-weight:500}
-        QPushButton:hover{background:#343438}
-        QPushButton#primary{background:#4285F4;color:#fff;border:none}
-        QPushButton#primary:hover{background:#5793f5}
-        QPushButton#stop{background:transparent;color:#f28b82;border:1px solid #343438}
-        QPushButton#stop:disabled{color:#68686d;border-color:#29292d}
-        QPushButton:disabled{background:#1c1c1f;color:#68686d;border-color:#29292d}
-        QLineEdit,QComboBox{background:#1c1c1f;border:1px solid #333337;padding:10px 12px;border-radius:10px;selection-background-color:#4285F4}
+        QListWidget#navigation::item:selected{background:#e8eef9;color:#171717}
+        QListWidget#navigation::item:hover{background:#ebebed}
+        QLabel#status{color:#66666d;font-size:11px;padding:8px 0;background:transparent}
+        QPushButton{background:#ffffff;border:1px solid #d2d2d7;padding:8px 14px;border-radius:16px;font-weight:500}
+        QPushButton:hover{background:#d2d2d7}
+        QPushButton#primary{background:#4285F4;color:#ffffff;border:none}
+        QPushButton#orange{background:#F58220;color:#171717;border:none}
+        QPushButton#orange:hover{background:#ff993d}
+        QPushButton#primary:hover{background:#2168d8}
+        QPushButton#stop{background:transparent;color:#d93025;border:1px solid #d2d2d7}
+        QPushButton#stop:disabled{color:#9b9ba1;border-color:#e5e5e7}
+        QPushButton:disabled{background:#f5f5f7;color:#9b9ba1;border-color:#e5e5e7}
+        QLineEdit,QComboBox{background:#f5f5f7;border:1px solid #d2d2d7;padding:10px 12px;border-radius:10px;selection-background-color:#4285F4}
         QLineEdit:focus{border-color:#4285F4}
         QTabWidget::pane{border:none;background:transparent}
-        QTableView{background:#141416;alternate-background-color:#19191c;border:1px solid #2c2c30;border-radius:12px;selection-background-color:#253550;selection-color:#fff}
-        QTableView::item{padding:8px;border-bottom:1px solid #252529}
-        QHeaderView::section{background:#1d1d20;color:#a1a1a6;padding:12px 8px;border:none;font-size:11px;font-weight:500}
+        QTableView{background:#ffffff;alternate-background-color:#fafafa;border:1px solid #e5e5e7;border-radius:12px;selection-background-color:#e8eef9;selection-color:#171717}
+        QTableView::item{padding:8px;border-bottom:1px solid #eaeaed}
+        QHeaderView::section{background:#f5f5f7;color:#66666d;padding:12px 8px;border:none;font-size:11px;font-weight:500}
         QCheckBox{spacing:10px;padding:6px}
-        QScrollBar:vertical{background:#17171a;width:8px;margin:0}
-        QScrollBar::handle:vertical{background:#434347;min-height:30px;border-radius:4px}
+        QScrollBar:vertical{background:#f5f5f7;width:8px;margin:0}
+        QScrollBar::handle:vertical{background:#b5b5ba;min-height:30px;border-radius:4px}
         QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0}
-        QMenu{background:#222225;border:1px solid #38383d;padding:6px}
+        QMenu{background:#ffffff;border:1px solid #d2d2d7;padding:6px}
         QMenu::item{padding:8px 20px}
-        QMenu::item:selected{background:#253550}
-        QMessageBox{background:#17171a}
+        QMenu::item:selected{background:#e8eef9}
+        QMessageBox{background:#f5f5f7}
     ''')
     directory = Path(args.data_dir) if args.data_dir else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'GemSearch'
     store = DesktopStore(directory)
@@ -744,6 +843,8 @@ def main():
     window.resize(min(1320, available.width() - 32), min(850, available.height() - 32))
     window.move(available.left() + 16, available.top() + 16)
     window.show()
+    if args.settings:
+        window.open_connection()
     if not args.smoke_test and not args.responsiveness_test:
         QTimer.singleShot(250, window.reopen)
     if args.responsiveness_test:

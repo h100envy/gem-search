@@ -1,6 +1,6 @@
 # Solscan desktop workflow
 
-The desktop now uses a restrained dark workspace: a compact header, left navigation, large section headings and one primary content area. Monitoring duration, Keep on top and minimize preferences are in Settings. The former dashboard cards and horizontal tab strip are removed. Blue actions and small Google color accents remain. This layout update does not enable unfinished wallet tracking or inflow alerts.
+The desktop uses a white workspace with orange, blue, red, green and black accents: a compact header, left navigation, large section headings and one primary content area. Monitoring duration, Keep on top and minimize preferences are in Settings. The former dashboard cards and horizontal tab strip are removed. Wallet tracking and inflow alert coverage are described below.
 
 ![Desktop workspace](desktop-workspace.png)
 
@@ -35,3 +35,13 @@ This is a dated directory snapshot, not the complete registered KOL population. 
 Import additional CSV or JSON lists using `name` and `address` fields. CSV requires a header row. JSON requires an array of objects. Imports validate Solana address encoding, merge by wallet address and persist locally in `kol-wallets.json`. The app accepts up to 10,000 imported wallets and files smaller than 2 MB. Bundled Kolscan names take precedence for matching addresses. Imports do not add wallet addresses to the token watchlist.
 
 Source: https://kolscan.io/leaderboard
+
+### Cielo connection
+
+Sign in at https://build.cielo.finance yourself. The official API key guide points to General settings, API Key Manager and Generate New Key. Enter the key in Settings, Save Cielo connection. The Solscan field manages the existing token-data credential separately. Both keys use Windows DPAPI, outside the repository, and are never bundled with the release. Environment variables CIELO_API_KEY and SOLSCAN_API_KEY are supported for local backend use.
+
+Cielo feed supports an explicit request for the account's Solana feed or a selected directory wallet through the documented GET /api/v1/feed endpoint. Requests run in a background thread and use account API credits. This initial connection screen displays the returned response without assuming unvalidated trade field names. No automated trade alerts are enabled before response validation. Failed requests retain the last received response.
+
+The developer documentation lists the free API tier as feed-only. User list retrieval is documented for Builder, Architect and Enterprise plans. A free Cielo web account and a free API key have different capabilities. Complete KOL directory retrieval is not established until account access is tested. The bundled Kolscan snapshot remains labeled as its original source.
+
+References: https://developer.cielo.finance/reference/getfeed and https://developer.cielo.finance/docs/getting-started

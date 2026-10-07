@@ -25,9 +25,11 @@ def transform(value, decrypt=False):
         ctypes.windll.kernel32.LocalFree(target.data)
 
 
-def load_key(directory):
-    key = os.environ.get('SOLSCAN_API_KEY', '').strip()
-    path = directory / 'solscan-key.dpapi'
+def load_key(directory, provider='solscan'):
+    if provider not in ('solscan', 'cielo'):
+        raise ValueError('Unknown credential provider')
+    key = os.environ.get(provider.upper() + '_API_KEY', '').strip()
+    path = directory / (provider + '-key.dpapi')
     if key or not path.exists():
         return key
     try:
@@ -36,8 +38,10 @@ def load_key(directory):
         return ''
 
 
-def save_key(directory, key):
-    path = directory / 'solscan-key.dpapi'
+def save_key(directory, key, provider='solscan'):
+    if provider not in ('solscan', 'cielo'):
+        raise ValueError('Unknown credential provider')
+    path = directory / (provider + '-key.dpapi')
     if key:
         path.write_bytes(transform(key.encode()))
     else:
