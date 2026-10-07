@@ -1,5 +1,5 @@
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
-import { createRadar } from './bot/radar.mjs';
+import { createRadar, TRACK_MAX } from './bot/radar.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -430,6 +430,28 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     }
     return null; // wrong or missing code: stay quiet
   }
+
+  // X accounts a chat follows: their posts land here, with a scan button when they carry a contract address.
+  async function onTrack(chatId, cmd, arg, replyTo) {
+    const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
+    if (!radar) return send(chatId, '🕷️ Tracking is not set up on this server.', opts);
+    const handles = [...new Set(String(arg ?? '').split(/[\s,]+/).map((h) => h.replace(/^@/, '').replace(/^https?:\/\/(x|twitter)\.com\//i, '').split(/[/?]/)[0].toLowerCase()).filter(Boolean))];
+    const bad = handles.filter((h) => !/^[a-z0-9_]{1,15}$/.test(h));
+    const good = handles.filter((h) => !bad.includes(h));
+    if (cmd === 'tracks') {
+      const list = radar.tracks(chatId);
+      return send(chatId, list.length ? `👁 Tracking in this chat (${list.length}/${TRACK_MAX}):\n${list.map((h) => `• @${h}`).join('\n')}\n\n/untrack @name to stop.` : `👁 Nothing tracked here yet. <code>/track @name</code> — up to ${TRACK_MAX} X accounts. I post their new tweets here and add a scan button when they drop a contract address.`, opts);
+    }
+    if (!good.length) return send(chatId, `🕷️ Send X usernames: <code>/${cmd} @name @other</code>`, opts);
+    if (cmd === 'untrack') { const list = await radar.untrack(chatId, good); return send(chatId, `👁 Stopped tracking ${good.map((h) => '@' + h).join(', ')}. ${list.length} left.`, opts); }
+    const r = await radar.track(chatId, good);
+    return send(chatId, [
+      r.added.length ? `👁 Tracking ${r.added.map((h) => '@' + h).join(', ')}. New posts land here within a few minutes; contract addresses get a 🔎 Scan button.` : '',
+      r.refused.length ? `Not added: ${r.refused.map((h) => '@' + h).join(', ')} (up to ${TRACK_MAX} per chat).` : '',
+      bad.length ? `Not X usernames: ${bad.map(esc).join(', ')}` : '',
+      `Now: ${r.list.length}/${TRACK_MAX}. /tracks to see them.`,
+    ].filter(Boolean).join('\n'), opts);
+  }
   const edit = (chatId, messageId, text, extra = {}) => tg('editMessageText', { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
   const errorText = (e) => {
     if (e instanceof LaunchError) return `🕷️ ${esc(e.message.charAt(0).toUpperCase() + e.message.slice(1))}.`;
@@ -595,6 +617,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
           return send(chatId, LAUNCH_TEXT);
         case 'radar':
           return onRadar(chatId, cmd.arg);
+        case 'track':
+        case 'untrack':
+        case 'tracks':
+          return onTrack(chatId, cmd.cmd, cmd.arg, m.message_id);
         case 'token':
           return sendPhoto(chatId, asset('avatar.jpg'), TOKEN_TEXT, { key: 'avatar', name: 'gemsearch.jpg', type: 'image/jpeg' }).catch((e) => {
             log.error('[bot] avatar', clean(e));
@@ -650,6 +676,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         { command: 'watch', description: 'Alert me when a coin changes' },
         { command: 'unwatch', description: 'Stop watching a coin' },
         { command: 'watches', description: 'Coins watched in this chat' },
+        { command: 'track', description: 'Follow X accounts: their posts land here' },
+        { command: 'tracks', description: 'X accounts tracked in this chat' },
         { command: 'launch', description: 'Launch a pump.fun coin from your wallet' },
         { command: 'token', description: '$GEMSEARCH contract address' },
         { command: 'help', description: 'What the spider can do' },
