@@ -7,6 +7,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
 import { scanToken } from './scan.mjs';
 import { xrayToken } from './xray.mjs';
+import { crewOf, openDb } from './crews.mjs';
 
 /**
  * gemsearch.fun's launchpad API. The page makes the coin's mint key and the creator's wallet signs; this server only
@@ -212,6 +213,14 @@ async function bundleIndex() {
   return value;
 }
 
+// --- Bundle Crews: the database the gem-index worker fills, read here ---------------------------------------------
+let crewDb = null;
+function crew(mint) {
+  try { new PublicKey(mint); } catch { throw new LaunchError(400, 'that is not a Solana address'); }
+  crewDb ??= openDb(env('CREWS_DB', '/data/crews.db'));
+  return crewOf(crewDb, mint);
+}
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -262,6 +271,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/crew/')) return send(200, crew(decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname === '/v1/index') return send(200, await bundleIndex());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/xray/')) return send(200, await xray(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/scan/')) return send(200, await scan(req, decodeURIComponent(url.pathname.slice(9)).trim()));

@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
+import { checkOutcomes, openDb, recordLaunch } from './crews.mjs';
 
 /**
  * Bundle Index: how many of today's pump.fun launches had other buys land in the very block the coin was created in.
@@ -58,8 +59,25 @@ export function summary(day) {
   return { date: day.date, seen: day.seen, checked: day.checked, known, bundledPct: pct(day.counts.bundled), snipedPct: pct(day.counts.sniped), cleanPct: pct(day.counts.clean), counts: day.counts, sameSlotHist: day.sameSlotHist, devBuy: day.devBuy, hours: day.hours, top: day.top, recent: day.recent, bundleMin: BUNDLE_MIN };
 }
 
-export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = '/data/index', sample = 0.3, delayMs = 30_000, log = console } = {}) {
+export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = '/data/index', sample = 0.3, delayMs = 30_000, crewsDb = null, log = console } = {}) {
   const conn = new Connection(rpc, 'confirmed');
+  // Launches with buys in their launch block also feed Bundle Crews, one at a time behind the index.
+  const db = crewsDb ? openDb(crewsDb) : null;
+  const crewQueue = [];
+  let crewBusy = false;
+  async function crewDrain() {
+    if (crewBusy || !db) return;
+    crewBusy = true;
+    while (crewQueue.length) {
+      const { coin, sigs } = crewQueue.shift();
+      await recordLaunch(db, conn, coin, sigs).catch((e) => log.error('[crews] record', coin.mint, e.message));
+    }
+    crewBusy = false;
+  }
+  if (db) {
+    setInterval(crewDrain, 2_000).unref();
+    setInterval(() => checkOutcomes(db).catch((e) => log.error('[crews] outcomes', e.message)), 120_000).unref();
+  }
   const days = new Map();
   const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
   const pathOf = (d) => join(dir, `${d}.json`);
@@ -84,10 +102,10 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
     busy = true;
     while (queue.length && queue[0].due <= Date.now()) {
       const coin = queue.shift();
-      let sameSlot = null;
+      let sameSlot = null, sigs = null;
       for (let i = 0; i < 3 && sameSlot === null; i++) {
         try {
-          const sigs = await conn.getSignaturesForAddress(new PublicKey(coin.mint), { limit: 200 }, 'confirmed');
+          sigs = await conn.getSignaturesForAddress(new PublicKey(coin.mint), { limit: 200 }, 'confirmed');
           sameSlot = launchBlock(sigs, coin.sig);
           if (sameSlot === null && sigs.length < 200) break; // creation not indexed yet or dropped: leave unknown
         } catch (e) {
@@ -95,6 +113,7 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
         }
       }
       record(await day(dayOf(coin.t)), { ...coin, sameSlot });
+      if (db && sameSlot >= 1 && crewQueue.length < 500) crewQueue.push({ coin, sigs });
       await new Promise((r) => setTimeout(r, 250));
     }
     busy = false;
@@ -117,7 +136,7 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
       d.seen++;
       const devBuyPct = Math.round(((Number(m.initialBuy) || 0) / 1e9) * 1000) / 10;
       d.devBuy[devBuyPct === 0 ? 'none' : devBuyPct < 5 ? 'under5' : devBuyPct < 10 ? 'under10' : 'over10']++;
-      if (Math.random() < sample && queue.length < 2000) queue.push({ mint: m.mint, sig: m.signature, name: String(m.name ?? '').slice(0, 40), symbol: String(m.symbol ?? '').slice(0, 12), devBuyPct, t, due: t + delayMs });
+      if (Math.random() < sample && queue.length < 2000) queue.push({ mint: m.mint, sig: m.signature, creator: m.traderPublicKey ?? null, mcSol: Number(m.marketCapSol) || null, name: String(m.name ?? '').slice(0, 40), symbol: String(m.symbol ?? '').slice(0, 12), devBuyPct, t, due: t + delayMs });
     };
     ws.onclose = () => { clearInterval(watchdog); log.log('[index] stream closed, reconnecting'); setTimeout(connect, 5_000); };
     ws.onerror = () => {};
@@ -128,6 +147,6 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  startIndex({ rpc: process.env.INDEX_RPC_URL ?? 'https://api.mainnet-beta.solana.com', dir: process.env.INDEX_DIR ?? '/data/index', sample: Number(process.env.INDEX_SAMPLE ?? 0.3) });
+  startIndex({ rpc: process.env.INDEX_RPC_URL ?? 'https://api.mainnet-beta.solana.com', dir: process.env.INDEX_DIR ?? '/data/index', sample: Number(process.env.INDEX_SAMPLE ?? 0.3), crewsDb: process.env.CREWS_DB ?? '/data/crews.db' });
   setInterval(() => {}, 1 << 30);
 }
