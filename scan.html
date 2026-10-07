@@ -124,7 +124,11 @@ h2{font-size:18px;margin:0 0 12px}
 .council .cintro{color:var(--muted);font-size:15px;margin:-6px 0 16px}
 .turn{display:flex;gap:12px;align-items:flex-start;margin:12px 0;animation:tin .45s both}
 @keyframes tin{from{opacity:0;transform:translateY(10px)}}
-.turn .av{width:42px;height:42px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:21px;background:#0a0822;border:2px solid var(--c)}
+.turn .av{width:52px;height:52px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:21px;background:#0a0822 center/cover;border:2px solid var(--c);box-shadow:0 0 14px color-mix(in srgb,var(--c) 45%,transparent)}
+.roast{display:flex;gap:16px;align-items:flex-start;margin-top:14px;padding:16px;border-radius:16px;border:1px solid rgba(255,138,31,.55);background:rgba(255,138,31,.06);animation:tin .45s both}
+.roast img{width:84px;height:84px;border-radius:18px;flex:none}
+.roast .txt{font-size:16px;white-space:pre-wrap}
+.cbtns{display:flex;gap:10px;flex-wrap:wrap}
 .turn .bub{background:#0a0822;border:1px solid #241f58;border-radius:4px 16px 16px 16px;padding:10px 14px;max-width:760px}
 .turn .who{font:700 13px "JetBrains Mono",monospace;color:var(--c);letter-spacing:.04em}
 .turn .txt{font-size:15.5px;margin-top:2px}
@@ -197,7 +201,9 @@ footer p{margin:0 0 8px;max-width:820px}
   <section class="card council" id="council">
     <h2>🤖 Grok Council <span class="mono" style="font-size:12px;color:var(--dim);font-weight:400">four Grok minds debate this coin</span></h2>
     <p class="cintro">The Lookout reads what X is saying right now. The Skeptic, the Builder and Timing argue from the spider's on-chain facts. Then they vote.</p>
+    <div class="cbtns" style="margin-bottom:14px"><img src="council/lookout.jpg" alt="Lookout" width="44" height="44" style="border-radius:50%;border:2px solid #1fd2ff"><img src="council/skeptic.jpg" alt="Skeptic" width="44" height="44" style="border-radius:50%;border:2px solid #ff5e8e"><img src="council/builder.jpg" alt="Builder" width="44" height="44" style="border-radius:50%;border:2px solid #4dff6a"><img src="council/timing.jpg" alt="Timing" width="44" height="44" style="border-radius:50%;border:2px solid #ffe81f"></div>
     <div id="cbody"><button class="btn primary" id="convene" type="button">Convene the council</button></div>
+    <div id="roastbox"></div>
   </section>
 </main>
 
@@ -453,8 +459,24 @@ async function loadCrew(mint) {
 // ---- Grok Council -------------------------------------------------------------------------------------------------
 const SEAT = { lookout: ['🔭', 'LOOKOUT', '#1fd2ff'], skeptic: ['🧐', 'SKEPTIC', '#ff5e8e'], builder: ['🛠', 'BUILDER', '#4dff6a'], timing: ['⏱', 'TIMING', '#ffe81f'] };
 const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[\[(\d+)\]\]\((https:\/\/x\.com\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">[$1]</a>');
-const turnHtml = (seat, text, delay) => { const [e, n, c] = SEAT[seat] ?? ['🕷️', seat.toUpperCase(), '#b48cff']; return `<div class="turn" style="--c:${c};animation-delay:${delay}s"><div class="av">${e}</div><div class="bub"><div class="who">${n}</div><div class="txt">${md(text)}</div></div></div>`; };
-function resetCouncil() { $('cbody').innerHTML = '<button class="btn primary" id="convene" type="button">Convene the council</button>'; $('convene').onclick = convene; }
+const turnHtml = (seat, text, delay) => { const [e, n, c] = SEAT[seat] ?? ['🕷️', seat.toUpperCase(), '#b48cff']; const img = SEAT[seat] ? `background-image:url(council/${seat}.jpg)` : ''; return `<div class="turn" style="--c:${c};animation-delay:${delay}s"><div class="av" style="${img}">${SEAT[seat] ? '' : e}</div><div class="bub"><div class="who">${n}</div><div class="txt">${md(text)}</div></div></div>`; };
+function resetCouncil() {
+  $('cbody').innerHTML = '<div class="cbtns"><button class="btn primary" id="convene" type="button">Convene the council</button><button class="btn" id="roastbtn" type="button">🔥 Roast it</button></div>';
+  $('roastbox').innerHTML = '';
+  $('convene').onclick = convene; $('roastbtn').onclick = roast;
+}
+async function roast() {
+  const mint = last?.mint; if (!mint) return;
+  const b = $('roastbtn'); if (b) { b.disabled = true; b.textContent = '🔥 Heating the grill…'; }
+  try {
+    const res = await fetch(API + '/v1/roast/' + encodeURIComponent(mint));
+    const d = await res.json(); if (!res.ok) throw new Error(d.error || 'the grill is cold');
+    if (last?.mint !== mint) return;
+    $('roastbox').innerHTML = `<div class="roast"><img src="council/roaster.jpg" alt="Roaster"><div><div class="mono" style="color:var(--orange);font-weight:700;font-size:13px;letter-spacing:.06em">THE ROASTER · GROK</div><div class="txt">${esc(d.roast)}</div><div class="acts" style="margin-top:10px"><button class="btn primary" id="rshare" type="button">Share the roast</button></div></div></div>`;
+    $('rshare').onclick = () => window.open('https://x.com/intent/post?text=' + encodeURIComponent(`🔥 Grok roasted ${last.symbol ? '$' + last.symbol : 'this coin'} on @gemsearchfun:\n\n${d.roast.slice(0, 200)}${d.roast.length > 200 ? '…' : ''}\n\ngemsearch.fun/scan?ca=${mint}`), '_blank', 'noopener');
+  } catch (e) { $('roastbox').innerHTML = `<p class="cintro">${esc(e.message)}</p>`; }
+  finally { if (b) { b.disabled = false; b.textContent = '🔥 Roast it again'; } }
+}
 async function convene() {
   const mint = last?.mint; if (!mint) return;
   $('cbody').innerHTML = '<div class="xload" style="height:auto;padding:24px"><span style="font-size:30px">🤖</span>The council is gathering: the Lookout is reading X…</div>';

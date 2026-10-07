@@ -53,6 +53,9 @@ form input:focus{border-color:#7a6bff}
 .leg{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
 .leg span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var(--c)}
 .acts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.roast{display:flex;gap:16px;align-items:flex-start;margin:18px auto 0;max-width:720px;text-align:left;padding:16px;border-radius:16px;border:1px solid rgba(255,138,31,.55);background:rgba(255,138,31,.06)}
+.roast img{width:84px;height:84px;border-radius:18px;flex:none}
+.roast .t{font-size:16px;white-space:pre-wrap}
 .coin{display:grid;grid-template-columns:52px 1fr auto;gap:14px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.07)}
 .coin:first-of-type{border-top:0}
 .coin img,.coin .ph{width:52px;height:52px;border-radius:14px;object-fit:cover;background:#0a0822;border:1px solid var(--line);display:grid;place-items:center;font-size:22px}
@@ -94,7 +97,8 @@ footer p{margin:0 0 8px;max-width:820px}
     <p id="vp"></p>
     <div class="bagbar" id="bar"></div>
     <div class="leg" id="leg"></div>
-    <div class="acts" id="acts" hidden><button class="btn primary" id="share" type="button">Share on X</button><button class="btn" id="card" type="button">Download card</button></div>
+    <div class="acts" id="acts" hidden><button class="btn primary" id="share" type="button">Share on X</button><button class="btn" id="card" type="button">Download card</button><button class="btn" id="roastbag" type="button">🔥 Roast my bag</button></div>
+    <div id="roastout"></div>
   </section>
   <section class="card"><div id="coins"></div><div class="small" id="more"></div></section>
 </main>
@@ -202,6 +206,18 @@ $('share').onclick = () => {
   const v = state.verdict, n = state.coins.length;
   const line = { high: 'EXIT LIQUIDITY RISK: HIGH 🚨', medium: 'EXIT LIQUIDITY RISK: MEDIUM ⚠️', low: 'LOOKING CLEAN ✅' }[v.lvl];
   window.open('https://x.com/intent/post?text=' + encodeURIComponent(`I let the @gemsearchfun spider X-ray my bag 🕷️\n\n${line}\n${v.highPct}% of my bag sits in high-risk coins across ${n} coin${n > 1 ? 's' : ''}\n\nam I exit liquidity? check yours:\ngemsearch.fun/me`), '_blank', 'noopener');
+};
+
+$('roastbag').onclick = async () => {
+  const b = $('roastbag'); b.disabled = true; b.textContent = '🔥 Heating the grill…';
+  try {
+    const body = { verdict: state.verdict?.lvl, coins: state.coins.map((c) => ({ symbol: c.symbol, usd: c.usd, level: c.level, flags: c.flags.map((f) => f[1]) })) };
+    const res = await fetch(API + '/v1/roast-bag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await res.json(); if (!res.ok) throw new Error(d.error || 'the grill is cold');
+    $('roastout').innerHTML = `<div class="roast"><img src="council/roaster.jpg" alt="Roaster"><div><div class="mono" style="color:#ff8a1f;font-weight:700;font-size:13px;letter-spacing:.06em">THE ROASTER · GROK</div><div class="t">${esc(d.roast)}</div><div class="acts" style="justify-content:flex-start;margin-top:10px"><button class="btn primary" id="rbshare" type="button">Share my roast</button></div></div></div>`;
+    $('rbshare').onclick = () => window.open('https://x.com/intent/post?text=' + encodeURIComponent(`🔥 I let Grok roast my memecoin bag on @gemsearchfun:\n\n${d.roast.slice(0, 210)}${d.roast.length > 210 ? '…' : ''}\n\nam I exit liquidity? gemsearch.fun/me`), '_blank', 'noopener');
+  } catch (e) { $('roastout').innerHTML = `<p class="small">${esc(e.message)}</p>`; }
+  finally { b.disabled = false; b.textContent = '🔥 Roast my bag'; }
 };
 
 $('card').onclick = () => {
