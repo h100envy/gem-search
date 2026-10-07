@@ -504,6 +504,31 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
   // Grok Council: four Grok seats debate the coin from live X posts and the spider's facts, then vote.
   const council = xaiKey ? createCouncil({ key: xaiKey, dataDir, file: 'council-bot.json', dailyUsd: Number(process.env.COUNCIL_BOT_DAILY_USD ?? 0.75), log }) : null;
   const councilHits = new Map();
+  async function councilFactsFor(mint) {
+    const [s, x] = await Promise.all([scan(mint), xray(mint).catch(() => null)]);
+    let c = null;
+    try { crewDb ??= openDb(join(dataDir, 'crews.db')); const rec = crewOf(crewDb, mint); c = rec.known ? rec : x ? (() => { const l = linksFromXray(x); return { crew: crewFromLinks(crewDb, mint, l.wallets, l.funders) }; })() : null; } catch {}
+    return { s, facts: factsOf(s, x, c) };
+  }
+
+  async function runRoast(chatId, userId, mint, replyTo) {
+    const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
+    if (!council) return send(chatId, '🔥 The roaster is not set up on this server.', opts);
+    const now = Date.now(), hits = (councilHits.get('r' + userId) ?? []).filter((t) => now - t < 600_000);
+    if (hits.length >= 4) return send(chatId, '🔥 Four roasts per 10 minutes per person. Let the grill cool down.', opts);
+    councilHits.set('r' + userId, [...hits, now]);
+    const msg = await send(chatId, '🔥 Heating the grill…', opts);
+    try {
+      const { s, facts } = await councilFactsFor(mint);
+      const r = await council.roast(facts);
+      const caption = `🔥 <b>The Roaster</b> on ${esc(s.name ?? '')} ${s.symbol ? '<b>$' + esc(s.symbol) + '</b>' : ''}\n\n${esc(r.roast)}\n\n<i>Grok in fun mode, roasting on-chain facts. Not financial advice.</i>`;
+      await sendPhoto(chatId, asset('roaster.jpg'), caption, { key: 'roaster', name: 'roaster.jpg', type: 'image/jpeg', reply_markup: { inline_keyboard: [[{ text: '🔎 Full scan', url: `${SITE}/scan?ca=${mint}` }, { text: '🤖 Council', callback_data: `c:${mint}` }]] } });
+      await tg('deleteMessage', { chat_id: chatId, message_id: msg.message_id }).catch(() => {});
+    } catch (e) {
+      await edit(chatId, msg.message_id, errorText(e)).catch(() => {});
+    }
+  }
+
   async function runCouncil(chatId, userId, mint, replyTo) {
     const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
     if (!council) return send(chatId, '🤖 The council is not set up on this server.', opts);
@@ -512,10 +537,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     councilHits.set(userId, [...hits, now]);
     const msg = await send(chatId, '🤖 Convening the Grok Council… the Lookout is reading X (about 20 seconds)', opts);
     try {
-      const [s, x] = await Promise.all([scan(mint), xray(mint).catch(() => null)]);
-      let c = null;
-      try { crewDb ??= openDb(join(dataDir, 'crews.db')); const rec = crewOf(crewDb, mint); c = rec.known ? rec : x ? (() => { const l = linksFromXray(x); return { crew: crewFromLinks(crewDb, mint, l.wallets, l.funders) }; })() : null; } catch {}
-      const d = await council.convene(factsOf(s, x, c));
+      const { s, facts } = await councilFactsFor(mint);
+      const d = await council.convene(facts);
       const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[\[(\d+)\]\]\([^)]+\)/g, '');
       const head = `🤖 <b>Grok Council</b> on ${esc(s.name ?? '')} ${s.symbol ? '<b>$' + esc(s.symbol) + '</b>' : ''}\n\n🔭 <b>What X says</b>\n${md(d.x.summary || 'almost nothing yet').slice(0, 900)}`;
       const talk = d.turns.map((t) => `${SEATS[t.seat]?.emoji ?? '🕷️'} <b>${SEATS[t.seat]?.name ?? t.seat}:</b> ${md(t.text)}`).join('\n\n');
@@ -646,6 +669,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
           return send(chatId, LAUNCH_TEXT);
         case 'radar':
           return onRadar(chatId, cmd.arg);
+        case 'roast': {
+          const mint = ca();
+          return mint ? runRoast(chatId, userId, mint, m.message_id) : need('roast');
+        }
         case 'council': {
           const mint = ca();
           return mint ? runCouncil(chatId, userId, mint, m.message_id) : need('council');
@@ -679,6 +706,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
       await tg('answerCallbackQuery', { callback_query_id: q.id, text: 'X-raying…' }).catch(() => {});
       return runXray(chatId, q.from.id, mint, q.message.message_id);
     }
+    if (kind === 'c') {
+      await tg('answerCallbackQuery', { callback_query_id: q.id, text: 'Convening the council…' }).catch(() => {});
+      return runCouncil(chatId, q.from.id, mint, q.message.message_id);
+    }
     if (kind === 'w') {
       const text = await addWatch(chatId, mint);
       const plain = text.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -710,6 +741,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         { command: 'unwatch', description: 'Stop watching a coin' },
         { command: 'watches', description: 'Coins watched in this chat' },
         { command: 'council', description: 'Grok Council: four Grok minds debate a coin' },
+        { command: 'roast', description: 'Grok roasts a coin from its on-chain facts' },
         { command: 'track', description: 'Follow X accounts: their posts land here' },
         { command: 'tracks', description: 'X accounts tracked in this chat' },
         { command: 'launch', description: 'Launch a pump.fun coin from your wallet' },

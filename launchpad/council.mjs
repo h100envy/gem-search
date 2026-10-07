@@ -92,7 +92,29 @@ export function createCouncil({ key, dataDir = '/data', file = 'council.json', d
     return { ...out, usd: r.usd };
   }
 
+  const ROAST = `You are the Gem Search Roaster: Grok in fun mode, a savage but clever crypto comedian. Roast the coin using ONLY the given facts: the numbers, the launch block, the clusters, the crew, the chart, what X says. 3 to 5 short punchy sentences, then a final one-liner verdict starting with "Verdict:". Be funny, specific and brutal about the numbers, never about people's identity, race, gender or looks. No slurs. Never accuse anyone of a crime or call anyone a scammer; a bundle or crew is a funding pattern, joke about the pattern. If the facts are clean, roast that too (boring clean chart, nobody cares yet). No hashtags, no financial advice, no price predictions.`;
+
   return {
+    async roast(facts, xSummary = null) {
+      const r = await call({
+        max_output_tokens: 300, temperature: 1,
+        input: [{ role: 'system', content: ROAST }, { role: 'user', content: `FACTS:\n${JSON.stringify(facts)}${xSummary ? `\n\nWHAT X SAYS (opinions):\n${xSummary}` : ''}` }],
+      });
+      state.roasts = (state.roasts ?? 0) + 1;
+      save().catch(() => {});
+      return { roast: r.text.trim(), usd: Math.round(r.usd * 1000) / 1000 };
+    },
+    async roastBag(bag) {
+      const coins = (Array.isArray(bag?.coins) ? bag.coins : []).slice(0, 10).map((c) => ({ symbol: String(c.symbol ?? '?').slice(0, 14), usd: Math.round(Number(c.usd) || 0), risk: String(c.level ?? '').slice(0, 8), flags: (Array.isArray(c.flags) ? c.flags : []).slice(0, 3).map((f) => String(f).slice(0, 50)) }));
+      if (!coins.length) throw new LaunchError(400, 'nothing in the bag to roast');
+      const r = await call({
+        max_output_tokens: 300, temperature: 1,
+        input: [{ role: 'system', content: ROAST.replace('Roast the coin', 'Roast this wallet\'s memecoin bag').replace('the numbers, the launch block, the clusters, the crew, the chart, what X says', 'the coins, their sizes and their risk flags') }, { role: 'user', content: `BAG:\n${JSON.stringify({ verdict: String(bag.verdict ?? '').slice(0, 40), coins })}` }],
+      });
+      state.roasts = (state.roasts ?? 0) + 1;
+      save().catch(() => {});
+      return { roast: r.text.trim(), usd: Math.round(r.usd * 1000) / 1000 };
+    },
     async convene(facts) {
       const x = await lookout(facts);
       const d = await debate(facts, x);

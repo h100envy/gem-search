@@ -268,6 +268,25 @@ async function convene(req, mint) {
     return value;
   } catch (err) { councils.delete(mint); throw err; }
 }
+const roasts = new Map();
+async function roastCoin(req, mint) {
+  if (!council) throw new LaunchError(503, 'the roaster is not set up on this server');
+  try { new PublicKey(mint); } catch { throw new LaunchError(400, 'that is not a Solana address'); }
+  const hit = roasts.get(mint);
+  if (hit && Date.now() - hit.at < 300_000) return hit.value;
+  limit(`roast:${req.ip}`, 5, 300_000, 'five roasts per 5 minutes; let the grill cool down');
+  const facts = councils.get(mint)?.value?.facts ?? (await councilFacts(req, mint));
+  const value = await council.roast(facts, councils.get(mint)?.value?.x?.summary ?? null);
+  roasts.set(mint, { at: Date.now(), value });
+  if (roasts.size > 300) roasts.delete(roasts.keys().next().value);
+  return value;
+}
+async function roastBag(req, body) {
+  if (!council) throw new LaunchError(503, 'the roaster is not set up on this server');
+  limit(`roastbag:${req.ip}`, 3, 300_000, 'three bag roasts per 5 minutes');
+  return council.roastBag(body);
+}
+
 async function askCouncil(req, mint, body) {
   if (!council) throw new LaunchError(503, 'the council is not set up on this server');
   const d = councils.get(mint)?.value;
@@ -326,6 +345,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'POST' && url.pathname === '/v1/roast-bag') return send(200, await roastBag(req, await readJson(req, 8_000)));
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/roast/')) return send(200, await roastCoin(req, decodeURIComponent(url.pathname.slice(10)).trim()));
     if (req.method === 'POST' && /^\/v1\/council\/[^/]+\/ask$/.test(url.pathname)) return send(200, await askCouncil(req, decodeURIComponent(url.pathname.split('/')[3]), await readJson(req, 4_000)));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/council/')) { const d = await convene(req, decodeURIComponent(url.pathname.slice(12)).trim()); const { facts, ...pub } = d; return send(200, pub); }
     if (req.method === 'GET' && url.pathname.startsWith('/v1/wallet/')) return send(200, await wallet(req, decodeURIComponent(url.pathname.slice(11)).trim()));
