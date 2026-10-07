@@ -160,6 +160,10 @@ footer p{margin:0 0 8px;max-width:820px}
     </div>
     <label for="desc">Description <span class="opt">(optional)</span></label>
     <textarea id="desc" maxlength="500" placeholder="What is it, in a sentence or two"></textarea>
+    <label for="post">Based on an X post <span class="opt">(optional: the post this coin is about)</span></label>
+    <input id="post" placeholder="https://x.com/name/status/…" inputmode="url">
+    <label for="repo">GitHub repo <span class="opt">(optional: the code behind it)</span></label>
+    <input id="repo" placeholder="https://github.com/owner/repo" inputmode="url">
     <details>
       <summary>Socials <span class="opt">(optional)</span></summary>
       <label for="website">Website</label><input id="website" placeholder="https://" inputmode="url">
@@ -379,7 +383,7 @@ async function connectEvm() {
 }
 async function launchEvm(name, symbol, dev) {
   step('ipfs');
-  const prep = await api('/v1/pons/prepare', { name, symbol, description: $('desc').value.trim(), image, website: $('website').value.trim(), twitter: $('twitter').value.trim(), telegram: $('telegram').value.trim(), devBuyEth: dev, creatorTaxPct: taxPct, creator: wallet });
+  const prep = await api('/v1/pons/prepare', { name, symbol, description: $('desc').value.trim(), image, website: $('website').value.trim(), twitter: $('twitter').value.trim(), telegram: $('telegram').value.trim(), repo: $('repo').value.trim(), post: $('post').value.trim(), devBuyEth: dev, creatorTaxPct: taxPct, creator: wallet });
   const chain = await evm.request({ method: 'eth_chainId' });
   if (chain.toLowerCase() !== RH.chainId) throw new Error('Switch your wallet to Robinhood Chain and try again.');
   step('sign');
@@ -455,13 +459,16 @@ $('go').addEventListener('click', async () => {
   }
   if (!Number.isFinite(dev) || dev < 0 || dev > 5) return fail('Dev buy: 0 to 5 SOL.');
   if (feeMode === 'gh' && !$('ghuser').value.trim()) return fail('Type the GitHub username that gets the fees, or keep 100%.');
+  const repoV = $('repo').value.trim(), postV = $('post').value.trim();
+  if (repoV && !/^https:\/\/github\.com\/[A-Za-z0-9-]+(\/[A-Za-z0-9._-]+)?\/?$/.test(repoV)) return fail('GitHub: a link like https://github.com/owner/repo');
+  if (postV && !/^https:\/\/(x|twitter)\.com\/[A-Za-z0-9_]{1,15}\/status\/\d+/.test(postV)) return fail('X post: a link like https://x.com/name/status/123…');
   if (!W) return fail('The page did not finish loading; refresh and try again.');
   busy = true; render(); $('ok').style.display = 'none';
   // The coin's address is made here, in your browser; only its public half is sent anywhere.
   const mint = W.Keypair.generate();
   try {
     step('ipfs');
-    const prep = await api('/v1/prepare', { name, symbol, description: $('desc').value.trim(), image, website: $('website').value.trim(), twitter: $('twitter').value.trim(), telegram: $('telegram').value.trim(), devBuySol: dev, github: feeMode === 'gh' ? $('ghuser').value.trim() : '', githubShare: Number($('ghshare').value), creator: wallet, mint: mint.publicKey.toBase58() });
+    const prep = await api('/v1/prepare', { name, symbol, description: $('desc').value.trim(), image, website: $('website').value.trim(), twitter: $('twitter').value.trim(), telegram: $('telegram').value.trim(), repo: $('repo').value.trim(), post: $('post').value.trim(), devBuySol: dev, github: feeMode === 'gh' ? $('ghuser').value.trim() : '', githubShare: Number($('ghshare').value), creator: wallet, mint: mint.publicKey.toBase58() });
     const tx = W.VersionedTransaction.deserialize(b64ToBytes(prep.tx));
     // The mint signs first; the wallet then signs exactly this transaction.
     tx.sign([mint]);
@@ -501,7 +508,7 @@ async function loadRecent() {
   try {
     const rows = await api('/v1/recent');
     if (!rows.length) return;
-    $('list').innerHTML = rows.map((c, i) => `<a class="coin" href="${c.chain === 'robinhood' ? 'https://ponsfamily.com/token/' : 'https://pump.fun/coin/'}${encodeURIComponent(c.mint)}" target="_blank" rel="noopener"><img src="${esc(c.image)}" alt="" loading="lazy"><div><b>${esc(c.name)}</b><span class="mono">$${esc(c.symbol)}</span>${c.github ? ` <span class="badge">🐙 ${esc(c.github.login)}</span>` : ''} <span class="badge" id="dx${i}" hidden></span></div></a>`).join('');
+    $('list').innerHTML = rows.map((c, i) => `<a class="coin" href="${c.chain === 'robinhood' ? 'https://ponsfamily.com/token/' : 'https://pump.fun/coin/'}${encodeURIComponent(c.mint)}" target="_blank" rel="noopener"><img src="${esc(c.image)}" alt="" loading="lazy"><div><b>${esc(c.name)}</b><span class="mono">$${esc(c.symbol)}</span>${c.github ? ` <span class="badge">🐙 ${esc(c.github.login)}</span>` : ''}${c.repo ? ' <span class="badge">GitHub</span>' : ''}${c.post ? ' <span class="badge">X post</span>' : ''}${c.chain === 'robinhood' ? ' <span class="badge">Robinhood</span>' : ''} <span class="badge" id="dx${i}" hidden></span></div></a>`).join('');
     rows.forEach(async (c, i) => { const st = await dexPaid(c.mint); if (st === 'approved') { const el = $('dx' + i); el.hidden = false; dexBadge(el, st); } });
   } catch {}
 }
