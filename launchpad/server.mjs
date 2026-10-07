@@ -198,6 +198,20 @@ async function xray(req, mint) {
   }
 }
 
+// --- Bundle Index: written by the gem-index worker, read here -----------------------------------------------------
+const INDEX_DIR = env('INDEX_DIR', '/data/index');
+let indexCache = { at: 0, value: null };
+async function bundleIndex() {
+  if (indexCache.value && Date.now() - indexCache.at < 10_000) return indexCache.value;
+  const { readFile } = await import('node:fs/promises');
+  const read = (d) => readFile(`${INDEX_DIR}/${d}.json`, 'utf8').then(JSON.parse).catch(() => null);
+  const today = new Date().toISOString().slice(0, 10), yday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const [t, y] = await Promise.all([read(today), read(yday)]);
+  const value = { today: t, yesterday: y && { ...y, recent: undefined }, at: new Date().toISOString() };
+  indexCache = { at: Date.now(), value };
+  return value;
+}
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -248,6 +262,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'GET' && url.pathname === '/v1/index') return send(200, await bundleIndex());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/xray/')) return send(200, await xray(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/scan/')) return send(200, await scan(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'POST' && url.pathname === '/v1/prepare') return send(200, await prepare(req, await readJson(req, 3_000_000)));
