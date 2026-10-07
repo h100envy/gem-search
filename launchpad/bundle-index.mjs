@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { checkOutcomes, openDb, recordLaunch } from './crews.mjs';
+import { addToFeed, initFeed, metadata } from './feed.mjs';
 
 /**
  * Bundle Index: how many of today's pump.fun launches had other buys land in the very block the coin was created in.
@@ -63,6 +64,7 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
   const conn = new Connection(rpc, 'confirmed');
   // Launches with buys in their launch block also feed Bundle Crews, one at a time behind the index.
   const db = crewsDb ? openDb(crewsDb) : null;
+  if (db) initFeed(db);
   const crewQueue = [];
   let crewBusy = false;
   async function crewDrain() {
@@ -114,6 +116,7 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
       }
       record(await day(dayOf(coin.t)), { ...coin, sameSlot });
       if (db && sameSlot >= 1 && crewQueue.length < 500) crewQueue.push({ coin, sigs });
+      if (db && sameSlot !== null) metadata(coin.uri).then((meta) => addToFeed(db, coin, sameSlot, meta)).catch((e) => log.error('[feed]', e.message));
       await new Promise((r) => setTimeout(r, 250));
     }
     busy = false;
@@ -136,7 +139,7 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
       d.seen++;
       const devBuyPct = Math.round(((Number(m.initialBuy) || 0) / 1e9) * 1000) / 10;
       d.devBuy[devBuyPct === 0 ? 'none' : devBuyPct < 5 ? 'under5' : devBuyPct < 10 ? 'under10' : 'over10']++;
-      if (Math.random() < sample && queue.length < 2000) queue.push({ mint: m.mint, sig: m.signature, creator: m.traderPublicKey ?? null, mcSol: Number(m.marketCapSol) || null, name: String(m.name ?? '').slice(0, 40), symbol: String(m.symbol ?? '').slice(0, 12), devBuyPct, t, due: t + delayMs });
+      if (Math.random() < sample && queue.length < 2000) queue.push({ mint: m.mint, sig: m.signature, uri: m.uri ?? null, creator: m.traderPublicKey ?? null, mcSol: Number(m.marketCapSol) || null, name: String(m.name ?? '').slice(0, 40), symbol: String(m.symbol ?? '').slice(0, 12), devBuyPct, t, due: t + delayMs });
     };
     ws.onclose = () => { clearInterval(watchdog); log.log('[index] stream closed, reconnecting'); setTimeout(connect, 5_000); };
     ws.onerror = () => {};

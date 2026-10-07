@@ -3,6 +3,7 @@ import { createRadar, TRACK_MAX } from './bot/radar.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 import { createCouncil, factsOf, SEATS } from './council.mjs';
 import { initRecord, recordVerdict } from './record.mjs';
+import { DEFAULTS as FEED_DEFAULTS, describe as describeFeed, initFeed, parseFilters, passes } from './feed.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -574,6 +575,54 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     } catch (e) { log.error('[sentinel]', clean(e)); }
   }
 
+  // Clean Launch Feed: new pump.fun launches that pass this chat's filters, about a minute after mint.
+  const feedPath = join(dataDir, 'feed-subs.json');
+  let feedSubs = null, feedLast = null;
+  const FEED_PER_HOUR = 20;
+  async function onFeed(chatId, arg, replyTo) {
+    feedSubs ??= await loadJson(feedPath, {});
+    const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
+    const [word, ...rest] = String(arg ?? '').trim().split(/\s+/);
+    if (word === 'off') { delete feedSubs[chatId]; await saveJson(feedPath, feedSubs); return send(chatId, '📴 Clean Launch Feed off for this chat.', opts); }
+    if (word === 'on' || word === 'set') {
+      const { filters, bad } = parseFilters(rest.join(' '), feedSubs[chatId]?.filters ?? FEED_DEFAULTS);
+      feedSubs[chatId] = { filters, sent: feedSubs[chatId]?.sent ?? [] };
+      await saveJson(feedPath, feedSubs);
+      return send(chatId, `🟢 <b>Clean Launch Feed on.</b> New pump.fun launches that pass these filters land here about a minute after mint (up to ${FEED_PER_HOUR} an hour):\n\n<code>${esc(describeFeed(filters))}</code>${bad.length ? `\n\nIgnored: ${esc(bad.join(' '))}` : ''}\n\nChange any: <code>/feed set dev=3 block=1</code> · stop: <code>/feed off</code>`, opts);
+    }
+    const cur = feedSubs[chatId];
+    return send(chatId, `🟢 <b>Clean Launch Feed</b>: the spider checks every pump.fun launch about 30 seconds after mint and sends you the ones that pass your filters: no buys in the launch block, a small dev buy, real links, not a serial launcher, not a dev the spider has seen in bundle crews.\n\n${cur ? `On, with:\n<code>${esc(describeFeed(cur.filters))}</code>` : `Off. Start with the defaults: <code>/feed on</code>\nor your own: <code>/feed on dev=3 block=0 links=2</code>`}\n\nA clean launch is not a good trade: most coins still go nowhere. The feed removes the obvious traps, the rest is yours.`, opts);
+  }
+  async function feedPass() {
+    feedSubs ??= await loadJson(feedPath, {});
+    const chats = Object.keys(feedSubs);
+    if (!chats.length) return;
+    try { crewDb ??= openDb(join(dataDir, 'crews.db')); initFeed(crewDb); } catch (e) { return log.error('[feed] db', clean(e)); }
+    if (feedLast === null) feedLast = crewDb.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM feed').get().id;
+    const rows = crewDb.prepare('SELECT * FROM feed WHERE id > ? ORDER BY id LIMIT 200').all(feedLast);
+    if (!rows.length) return;
+    feedLast = rows[rows.length - 1].id;
+    const now = Date.now();
+    for (const row of rows) {
+      for (const chatId of chats) {
+        const sub = feedSubs[chatId];
+        if (!sub || !passes(row, sub.filters)) continue;
+        sub.sent = (sub.sent ?? []).filter((t) => now - t < 3_600_000);
+        if (sub.sent.length >= FEED_PER_HOUR) continue;
+        sub.sent.push(now);
+        const links = [['X', row.twitter], ['site', row.website], ['TG', row.telegram]].filter(([, u]) => u).map(([n, u]) => `<a href="${esc(u)}">${n}</a>`).join(' · ');
+        const age = Math.max(1, Math.round((now - row.t) / 1000));
+        const text = `🟢 <b>Clean launch</b> · ${esc(row.name)} <b>$${esc(row.symbol)}</b> · ${age < 120 ? age + 's' : Math.round(age / 60) + 'm'} old\n\n` +
+          `Launch block: <b>${row.same_slot} other buys</b>\nDev buy: <b>${row.dev_buy_pct ?? 0}%</b>\nDev's coins in 24h: <b>${(row.dev_24h ?? 0) + 1}</b>\nCrew memory: <b>${row.crew ? 'seen before' : 'not seen'}</b>\nLinks: ${links || 'none'}\n\n<code>${esc(row.mint)}</code>\n<i>Clean ≠ good. Not financial advice.</i>`;
+        await send(chatId, text, { reply_markup: { inline_keyboard: [[{ text: 'pump.fun', url: `https://pump.fun/coin/${row.mint}` }, { text: '🔎 Scan', url: `${SITE}/scan?ca=${row.mint}` }, { text: '🔥 Roast', callback_data: `r:${row.mint}` }]] } }).catch((e) => {
+          if (e.code === 403) delete feedSubs[chatId]; // the bot was blocked or removed
+          log.error('[feed] send', clean(e));
+        });
+      }
+    }
+    await saveJson(feedPath, feedSubs).catch(() => {});
+  }
+
   async function addWatch(chatId, mint) {
     const list = (watches[chatId] ??= {});
     if (list[mint]) return '👁 Already watching this coin.';
@@ -699,6 +748,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
           const mint = ca();
           return mint ? runCouncil(chatId, userId, mint, m.message_id) : need('council');
         }
+        case 'feed':
+          return onFeed(chatId, cmd.arg, m.message_id);
         case 'track':
         case 'untrack':
         case 'tracks':
@@ -775,6 +826,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         { command: 'watches', description: 'Coins watched in this chat' },
         { command: 'council', description: 'Grok Council: four Grok minds debate a coin' },
         { command: 'roast', description: 'Grok roasts a coin from its on-chain facts' },
+        { command: 'feed', description: 'Clean Launch Feed: new pump.fun launches that pass your filters' },
         { command: 'track', description: 'Follow X accounts: their posts land here' },
         { command: 'tracks', description: 'X accounts tracked in this chat' },
         { command: 'launch', description: 'Launch a pump.fun coin from your wallet' },
@@ -814,6 +866,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
       }
     }
     setInterval(watchPass, WATCH_EVERY_MS).unref?.();
+    setInterval(() => feedPass().catch((e) => log.error('[feed]', clean(e))), 20_000).unref?.();
     if (radar) await radar.start().then(() => log.log('[bot] radar ready'), (e) => log.error('[bot] radar', clean(e)));
     log.log('[bot] polling');
     await poll();
