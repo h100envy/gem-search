@@ -1,5 +1,9 @@
 # Solscan desktop workflow
 
+The desktop now uses a restrained dark workspace: a compact header, left navigation, large section headings and one primary content area. Monitoring duration, Keep on top and minimize preferences are in Settings. The former dashboard cards and horizontal tab strip are removed. Blue actions and small Google color accents remain. This layout update does not enable unfinished wallet tracking or inflow alerts.
+
+![Desktop workspace](desktop-workspace.png)
+
 All active desktop discovery, token metadata, USD prices and market capitalization come from Solscan. There is no DexScreener or GeckoTerminal fallback in the desktop app. The server crawler has separate legacy provider integrations.
 
 Open Settings and enter your Solscan Pro API key locally, then select Save Solscan connection. Windows encrypts the saved credential for your Windows account using DPAPI. The key is kept outside the repository in the app data directory. SOLSCAN_API_KEY is also supported. API endpoint access depends on your Solscan account plan. No key is included with the download.
