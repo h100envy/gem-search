@@ -1,0 +1,13 @@
+# Direct address lookup and storage allocation
+
+Paste a token contract address into the Live tokens search box. A direct lookup starts after a short pause; Enter or **Look up address** retries it. The token detail card appears independently of scanner filters. It displays the returned price, reported market capitalization, liquidity and blockchain account check, along with reasons the token is excluded from the scanner. **Watch token** saves it for subsequent market refreshes and Solana transaction collection. **Open token explorer** opens the exact token address.
+
+Name and partial-text searches continue to filter the collected list. Exact address lookup requests market data directly and preserves Solana address capitalization. EVM lookup uses the selected network or searches supported networks when no network is selected. Older responses cannot replace the current search result. The scanner still requires current reported market capitalization of at least $40,000 and current reported liquidity of at least $10,000. An explicit lookup can show a token below those floors or without liquidity; that does not add it to eligible scanner results. Missing market data remains unavailable rather than inferred from a blockchain supply check.
+
+The desktop app allocates 10 GB, measured as 10,000,000,000 bytes, in its local data folder. `storage-reserve.bin` holds the unused portion. The reservation shrinks as saved data grows and is adjusted in a separate worker once per minute. Settings displays data usage, reserved space and the data folder. Creating the initial reservation requires sufficient disk space and can take several seconds. Reservation failures appear in Settings.
+
+When a reservation exists, database writes are checked against the data budget before commit. A one-megabyte safety margin is retained. Collection stops saving when that budget is full; stored history is not silently deleted. Token records are no longer evicted merely because more than 2,000 exist. The desktop list still loads the latest 2,000 records to keep the interface bounded. Wallet transaction history remains separate. The storage allocation does not increase provider coverage, fix missing upstream fields or make protocol decoding complete.
+
+The reservation is a normal local file, not a disk partition. Other software can still consume the remaining free disk space. The app executable and public download files are outside this data allocation.
+
+Run `python -m unittest tests.test_address_lookup_storage -q` to verify exact lookup, case preservation, scanner exclusion explanations, stale-response rejection, watchlist addition, network-specific lookup, reservation growth and shrinkage, disk-full handling and write rollback.

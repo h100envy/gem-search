@@ -20,6 +20,7 @@ from alerts import TokenAlerts
 from desktop_store import DesktopStore
 from dex_monitor import DexMonitor
 from wallet_ingestion import WalletIngestion
+from token_lookup import lookup_key, lookup_token
 from desktop_credentials import load_key, save_key
 from cielo_client import CieloClient
 from kolscan_directory import bundled_wallets, read_wallets, SOURCE, CAPTURED
@@ -336,6 +337,15 @@ class DesktopWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search token name, chain or address')
         self.search.textChanged.connect(self.filter_changed)
+        self.search.returnPressed.connect(self.lookup_address)
+        self.lookup_records = []
+        self.lookup_generation = 0
+        self.lookup_signals = StoreSignals(self)
+        self.lookup_signals.snapshot.connect(self.accept_lookup, Qt.ConnectionType.QueuedConnection)
+        self.lookup_timer = QTimer(self)
+        self.lookup_timer.setSingleShot(True)
+        self.lookup_timer.setInterval(500)
+        self.lookup_timer.timeout.connect(self.lookup_address)
         self.token_sort = QComboBox()
         for label, value in [('Top market cap', 'cap'), ('Newest tokens', 'newest'), ('Name', 'name'), ('Top volume · 5m', 'volume')]:
             self.token_sort.addItem(label, value)
@@ -377,6 +387,29 @@ class DesktopWindow(QMainWindow):
                 self.filter_summary_label = QLabel()
                 self.filter_summary_label.setWordWrap(True)
                 box.addWidget(self.filter_summary_label)
+                self.lookup_panel = QWidget()
+                lookup_box = QVBoxLayout(self.lookup_panel)
+                self.lookup_label = QLabel()
+                self.lookup_label.setWordWrap(True)
+                self.lookup_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                lookup_box.addWidget(self.lookup_label)
+                self.lookup_choices = QComboBox()
+                self.lookup_choices.currentIndexChanged.connect(self.render_lookup)
+                lookup_box.addWidget(self.lookup_choices)
+                lookup_actions = QHBoxLayout()
+                self.lookup_watch = QPushButton('Watch token')
+                self.lookup_watch.clicked.connect(self.watch_lookup)
+                lookup_actions.addWidget(self.lookup_watch)
+                self.lookup_explorer = QPushButton('Open token explorer')
+                self.lookup_explorer.clicked.connect(self.open_lookup_explorer)
+                lookup_actions.addWidget(self.lookup_explorer)
+                lookup_retry = QPushButton('Look up address')
+                lookup_retry.clicked.connect(self.lookup_address)
+                lookup_actions.addWidget(lookup_retry)
+                lookup_actions.addStretch()
+                lookup_box.addLayout(lookup_actions)
+                self.lookup_panel.hide()
+                box.addWidget(self.lookup_panel)
             if name == 'Saved tokens':
                 history_notice = QLabel('Saved history from earlier versions. These values are historical provider data, excluded from live results and new alerts.')
                 history_notice.setWordWrap(True)
@@ -563,6 +596,11 @@ class DesktopWindow(QMainWindow):
         settings.addWidget(QLabel('Local data: ' + str(store.directory)))
         settings.addStretch()
         settings_scroll = QScrollArea()
+        self.storage_label = QLabel('Local data allocation: 10 GB. Preparing storage information...')
+        self.storage_label.setWordWrap(True)
+        settings.addWidget(self.storage_label)
+        self.storage_state = {}
+        self.storage_error = None
         settings_scroll.setWidgetResizable(True)
         settings_scroll.setWidget(settings_page)
         self.tabs.addTab(settings_scroll, 'Settings')
@@ -597,6 +635,7 @@ class DesktopWindow(QMainWindow):
         if background:
             threading.Thread(target=self.worker, daemon=True).start()
             threading.Thread(target=self.wallet_worker, daemon=True).start()
+            threading.Thread(target=self.storage_worker, daemon=True).start()
             threading.Thread(target=self.snapshot_worker, daemon=True).start()
         self.refresh()
 
@@ -620,6 +659,15 @@ class DesktopWindow(QMainWindow):
                 self.ingestion.poll(lambda: not self.stop.is_set() and self.monitor.status()['enabled'])
             except Exception as error:
                 self.ingestion.state['error'] = 'Wallet collection delayed: ' + type(error).__name__
+
+    def storage_worker(self):
+        while not self.stop.is_set():
+            try:
+                self.storage_state = self.store.storage.maintain()
+                self.storage_error = None
+            except OSError as error:
+                self.storage_error = str(error)
+            self.stop.wait(60)
 
     def open_wallet_transaction(self, index):
         record = self.wallet_table.model().records[index.row()]
@@ -729,6 +777,8 @@ class DesktopWindow(QMainWindow):
         self.status_label.setText(('Monitoring' if state['enabled'] else 'Paused') + (' · Connection needs attention. See Settings.' if state['error'] else ' · Token refresh') + (' · Valuation unavailable' if state.get('valuation_error') else ''))
         self.status_label.setToolTip(str(state['checked']) + ' measured flow samples. ' + str(state['skipped']) + ' unavailable flow samples. Last successful response: ' + stamp(state.get('last_success_at')))
         self.persist_session()
+        storage = self.storage_state
+        self.storage_label.setText('Local data allocation: 10 GB\nData: {:.3f} GB · Reserved space: {:.3f} GB\n{}'.format(storage.get('used', 0) / 1e9, storage.get('reserved', 0) / 1e9, str(self.store.directory)) + ('\n' + self.storage_error if self.storage_error else ''))
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
         activity = snapshot.get('wallet_activity', {}) if self.background else self.ingestion.snapshot()
         ingestion_state, counts = activity.get('status', {}), activity.get('counts', {})
@@ -795,12 +845,92 @@ class DesktopWindow(QMainWindow):
             self.refresh()
 
     def filter_changed(self):
+        if self.sender() is self.search:
+            self.lookup_generation += 1
+            self.lookup_records = []
+            self.lookup_panel.hide()
+            if lookup_key(self.search.text(), self.applied_filters.get('chain', '')):
+                self.lookup_timer.start()
+            else:
+                self.lookup_timer.stop()
         if hasattr(self, 'applied_filters') and self.sender() is self.token_sort:
             self.applied_filters['sort'] = self.token_sort.currentData()
             if self.token_sort.currentData() == 'volume':
                 self.applied_filters['timeframe'] = 'm5'
         self.pages['Live tokens'] = 0
         self.refresh()
+
+    def lookup_address(self):
+        text = self.search.text().strip()
+        chain = self.applied_filters.get('chain', '')
+        if not lookup_key(text, chain):
+            return
+        self.lookup_generation += 1
+        generation = self.lookup_generation
+        self.lookup_records = []
+        self.lookup_choices.hide()
+        self.lookup_watch.setText('Watch token')
+        self.lookup_watch.setEnabled(False)
+        self.lookup_explorer.setEnabled(False)
+        self.lookup_label.setText('Looking up ' + text + '...')
+        self.lookup_panel.show()
+        def fetch():
+            try:
+                records = lookup_token(text, chain)
+                for record in records:
+                    self.store.record(record['chain'], record['address'], record)
+                self.lookup_signals.snapshot.emit({'generation': generation, 'records': records})
+            except (ValueError, OSError) as error:
+                self.lookup_signals.snapshot.emit({'generation': generation, 'records': [], 'error': 'Address lookup failed: ' + type(error).__name__ + '. Use Look up address to retry.'})
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def accept_lookup(self, result):
+        if result['generation'] != self.lookup_generation or self.quitting:
+            return
+        self.lookup_records = result['records']
+        self.lookup_choices.blockSignals(True)
+        self.lookup_choices.clear()
+        for record in self.lookup_records:
+            self.lookup_choices.addItem(record['chain'].upper())
+        self.lookup_choices.blockSignals(False)
+        self.lookup_choices.setVisible(len(self.lookup_records) > 1)
+        if not self.lookup_records:
+            self.lookup_label.setText(result.get('error', 'No market pair was returned for this address.'))
+            return
+        self.render_lookup()
+
+    def render_lookup(self):
+        if not self.lookup_records:
+            return
+        row = self.lookup_records[max(0, self.lookup_choices.currentIndex())]
+        cap = current_cap(row)
+        liquidity = current_value(row, 'liquidity_usd', 'statistics_sampled_at')
+        reasons = []
+        if cap is None or cap < 40000:
+            reasons.append('market cap unavailable or below $40k')
+        if liquidity is None or liquidity < 10000:
+            reasons.append('liquidity unavailable or below $10k')
+        if not matches(row, self.applied_filters):
+            reasons.append('does not match the active scanner filters')
+        explanation = 'Excluded from the scanner: ' + '; '.join(reasons) + '.' if reasons else 'Meets the current scanner filters.'
+        self.lookup_label.setText(row['name'] + ' · ' + row['chain'].upper() + '\n' + row['address'] + '\nPrice: ' + price(current_value(row, 'price_usd', 'price_sampled_at')) + ' · Market cap: ' + money(cap) + ' · Liquidity: ' + money(liquidity) + '\n' + row.get('verification_status', 'Verification unavailable') + '\n' + explanation + '\nDirect address lookup is shown independently of scanner filters.')
+        self.lookup_watch.setEnabled(True)
+        self.lookup_explorer.setEnabled(True)
+
+    def watch_lookup(self):
+        if self.lookup_records:
+            row = self.lookup_records[max(0, self.lookup_choices.currentIndex())]
+            try:
+                self.run_store(self.store.watch, row['chain'], row['address'])
+                self.lookup_watch.setText('Added to Watchlist')
+            except ValueError as error:
+                self.lookup_label.setText(str(error))
+
+    def open_lookup_explorer(self):
+        if self.lookup_records:
+            row = self.lookup_records[max(0, self.lookup_choices.currentIndex())]
+            prefix = 'https://solscan.io/token/' if row['chain'] == 'solana' else EVM[row['chain']][2]
+            QDesktopServices.openUrl(QUrl(prefix + quote(row['address'], safe='')))
 
     def turn_page(self, name, direction):
         self.pages[name] = max(0, self.pages.get(name, 0) + direction)
@@ -960,6 +1090,8 @@ class DesktopWindow(QMainWindow):
             return
         self.quitting = True
         self.timer.stop()
+        self.lookup_timer.stop()
+        self.lookup_generation += 1
         self.stop_monitor()
         self.tray.hide()
         if self.background:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 from chains import EVM, address_key
+from storage_budget import StorageBudget
 
 
 class DesktopStore:
@@ -14,6 +15,7 @@ class DesktopStore:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.db = self.directory / 'tokens.sqlite'
+        self.storage = StorageBudget(self.directory)
         with self.connect() as con:
             con.executescript('''
             PRAGMA journal_mode=WAL;
@@ -29,6 +31,8 @@ class DesktopStore:
         try:
             with con:
                 yield con
+                if con.total_changes:
+                    self.storage.require_space()
         finally:
             con.close()
 
@@ -47,7 +51,6 @@ class DesktopStore:
             payload = json.loads(row[0]) if row else {'chain': chain, 'address': address, 'name': address, 'first_seen': time.time()}
             payload.update(fields)
             con.execute('INSERT OR REPLACE INTO desktop_tokens VALUES (?,?,?,?)', (chain, address, time.time(), json.dumps(payload)))
-            con.execute('DELETE FROM desktop_tokens WHERE rowid NOT IN (SELECT rowid FROM desktop_tokens ORDER BY updated DESC LIMIT 2000) AND NOT EXISTS (SELECT 1 FROM desktop_watchlist w WHERE w.chain=desktop_tokens.chain AND w.address=desktop_tokens.address)')
 
     def tokens(self):
         with self.connect() as con:
