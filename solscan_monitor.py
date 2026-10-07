@@ -115,6 +115,21 @@ class SolscanMonitor:
             self.last_poll = time.monotonic()
         self.checked = self.skipped = 0
         self.error = self.valuation_error = None
+        tracked_records = [item for item in (self.tracked() if self.tracked else []) if item.get('chain') == 'solana']
+        try:
+            addresses = [item['address'] for item in tracked_records]
+            for start in range(0, len(addresses), 100):
+                if not self.active(generation):
+                    return
+                samples = solana_supplies(addresses[start:start + 100])
+                for item in tracked_records:
+                    sample = samples.get(item['address'])
+                    if sample and self.active(generation):
+                        fields = dict(sample)
+                        fields['verification_status'] = 'Mint and decimals confirmed; USD value not verified' if type(item.get('solscan_decimals')) is int and item['solscan_decimals'] == sample['onchain_decimals'] else 'Mint metadata sampled; provider decimals unavailable'
+                        self.observer('solana', item['address'], fields)
+        except Exception as error:
+            self.valuation_error = 'Blockchain verification unavailable: ' + type(error).__name__
         try:
             try:
                 latest = client.get('token/latest', page=1, page_size=20)
@@ -128,7 +143,7 @@ class SolscanMonitor:
             records = {item['address']: item for item in latest if isinstance(item, dict) and isinstance(item.get('address'), str)}
             watched = [address for chain, address in (self.watchlist() if self.watchlist else []) if chain == 'solana']
             tracked = [item['address'] for item in (self.tracked() if self.tracked else []) if item.get('chain') == 'solana']
-            ordered = list(dict.fromkeys(watched or tracked))
+            ordered = list(dict.fromkeys(watched + tracked))
             if ordered:
                 self.offset %= len(ordered)
             extra = (ordered[self.offset:] + ordered[:self.offset])[:20]
@@ -136,8 +151,6 @@ class SolscanMonitor:
             for address in extra:
                 if not self.active(generation):
                     return
-                if client.free_access is True and attempted >= 1:
-                    break
                 attempted += 1
                 try:
                     item = client.get('token/meta', address=address)
@@ -162,7 +175,7 @@ class SolscanMonitor:
                     self.error = 'Add a Solana token address in Settings; discovery is unavailable on this access tier'
                 return
             if client.free_access is True and (not self.error or 'Discovery access unavailable' in self.error):
-                self.error = 'Free Solscan access connected; one token refresh per minute, watchlist prioritized, discovery unavailable'
+                self.error = 'Free Solscan access connected; up to 20 token refreshes per minute, watchlist prioritized, discovery unavailable'
             if not self.active(generation):
                 return
             samples = {}

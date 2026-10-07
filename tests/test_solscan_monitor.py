@@ -39,16 +39,16 @@ class SolscanTests(unittest.TestCase):
 
     def test_free_access_limits_batch_and_rotates(self):
         client = Mock(key='fake-key', free_access=True)
-        client.get.side_effect = [SolscanAccessError(403, 'Discovery unavailable'), {'address': ADDRESS, 'decimals': 9}]
+        client.get.side_effect = [SolscanAccessError(403, 'Discovery unavailable'), {'address': ADDRESS, 'decimals': 9}, {'address': 'another-token', 'decimals': 9}]
         observer = Mock()
         tracked = [{'chain': 'solana', 'address': ADDRESS}, {'chain': 'solana', 'address': 'another-token'}]
         monitor = SolscanMonitor(Mock(), observer, tracked=lambda: tracked, client=client)
         monitor.control(True)
         with patch('solscan_monitor.solana_supplies', return_value={}):
             monitor.poll()
-        self.assertEqual(client.get.call_count, 2)
-        self.assertEqual(monitor.offset, 1)
-        self.assertEqual(observer.call_count, 1)
+        self.assertEqual(client.get.call_count, 3)
+        self.assertEqual(monitor.offset, 0)
+        self.assertEqual(observer.call_count, 2)
 
     def test_rate_limit_retries_same_token_without_discarding_discovery(self):
         client = Mock(key='fake-key', free_access=False)
@@ -74,6 +74,19 @@ class SolscanTests(unittest.TestCase):
         self.assertTrue(request.full_url.startswith('https://pro-api.solscan.io/v2.0/token/latest?'))
         self.assertNotIn('fake-test-key', request.full_url)
         self.assertEqual(request.get_header('Token'), 'fake-test-key')
+
+    def test_blockchain_refresh_survives_provider_rate_limit(self):
+        client = Mock(key='fake-key', free_access=False)
+        client.get.side_effect = SolscanAccessError(429, 'Rate limited')
+        observer = Mock()
+        tracked = [{'chain': 'solana', 'address': ADDRESS, 'solscan_decimals': 9}]
+        monitor = SolscanMonitor(Mock(), observer, tracked=lambda: tracked, client=client)
+        monitor.control(True)
+        with patch('solscan_monitor.solana_supplies', return_value={ADDRESS: {'onchain_decimals': 9, 'onchain_supply_sampled_at': time.time()}}):
+            monitor.poll()
+        self.assertEqual(observer.call_count, 1)
+        self.assertTrue(observer.call_args.args[2]['verification_status'].startswith('Mint and decimals confirmed'))
+        self.assertEqual(monitor.error, 'Rate limited')
 
     def test_missing_key_never_requests_network(self):
         with patch('solscan_monitor.urlopen') as opened:

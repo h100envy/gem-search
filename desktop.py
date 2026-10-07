@@ -672,7 +672,9 @@ class DesktopWindow(QMainWindow):
         tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'Solscan']
         connected = bool(self.monitor.client.key)
         self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'Waiting for the first token response.' if not tokens else '')
-        self.connection_notice.setVisible(not connected or not tokens)
+        self.connection_notice.setVisible(not connected or not tokens or bool(state['error']))
+        if state['error']:
+            self.connection_notice.setText(str(state['error']))
         self.connection_button.setVisible(not connected)
         self.control_buttons['primary'].setText('Start monitoring' if connected else 'Connect data')
         self.control_buttons['primary'].setEnabled(not state['enabled'])
