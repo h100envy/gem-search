@@ -84,3 +84,15 @@ online('a new GitHub fee address with a dev buy goes in a small transaction of i
   pre.sign([creator]);
   assert.ok(checkSigned(Buffer.from(pre.serialize()).toString('base64'), { message: b.pre.message, creator: creator.publicKey.toBase58() }));
 });
+
+test('a repo and a source post are checked and placed in fields launchpads show', async () => {
+  const { parseSources, placeSources } = await import('../launch.mjs');
+  assert.deepEqual(parseSources({ repo: 'https://github.com/h100envy/gem-search', post: 'https://twitter.com/elonmusk/status/1234567890?s=20' }), { repo: 'https://github.com/h100envy/gem-search', post: 'https://x.com/elonmusk/status/1234567890' });
+  assert.throws(() => parseSources({ repo: 'https://gitlab.com/x' }), /GitHub/);
+  assert.throws(() => parseSources({ post: 'https://x.com/elonmusk' }), /X post/);
+  const s = { repo: 'https://github.com/a/b', post: 'https://x.com/a/status/12345' };
+  assert.deepEqual(placeSources({ description: 'd' }, s), { twitter: s.post, website: s.repo, description: 'd' });
+  const taken = placeSources({ description: 'd', twitter: 'https://x.com/me', website: 'https://me.site' }, s);
+  assert.match(taken.description, /Based on: https:\/\/x\.com\/a\/status\/12345/);
+  assert.match(taken.description, /GitHub: https:\/\/github\.com\/a\/b/);
+});

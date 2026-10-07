@@ -150,6 +150,28 @@ export function imageMatches(contentType, b) {
 }
 
 const URL_RE = /^https:\/\/[^\s]{3,200}$/;
+const REPO_RE = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9._-]{1,100})?\/?$/;
+const POST_RE = /^https:\/\/(?:x|twitter)\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{5,25}(?:[/?][^\s]*)?$/;
+
+/** The GitHub repo and the X post a coin is built around; both optional, both checked for shape. */
+export function parseSources(body) {
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  const repo = str(body?.repo), post = str(body?.post).replace('twitter.com', 'x.com').split('?')[0];
+  if (repo && !REPO_RE.test(repo)) throw new LaunchError(400, 'GitHub: a link like https://github.com/owner/repo');
+  if (post && !POST_RE.test(post)) throw new LaunchError(400, 'X post: a link like https://x.com/name/status/123…');
+  return { repo: repo || null, post: post || null };
+}
+
+/**
+ * Neither pump.fun nor pons has fields for a repo or a source post: the post fills the X field and the repo the website
+ * field when those are empty; anything left goes on its own line at the end of the description.
+ */
+export function placeSources({ description = '', twitter = '', website = '' }, { repo, post }) {
+  const extra = [];
+  if (post) { if (!twitter) twitter = post; else extra.push(`Based on: ${post}`); }
+  if (repo) { if (!website) website = repo; else extra.push(`GitHub: ${repo}`); }
+  return { twitter, website, description: [description, ...extra].filter(Boolean).join('\n\n') };
+}
 /** The launch form, checked field by field. Returns clean values or throws with the first problem. */
 export function parseLaunch(body) {
   if (!body || typeof body !== 'object') throw new LaunchError(400, 'send the launch as JSON');
@@ -166,6 +188,7 @@ export function parseLaunch(body) {
     if (v && !URL_RE.test(v)) throw new LaunchError(400, `${k}: a full https:// link`);
     if (v) links[k] = v;
   }
+  const sources = parseSources(body);
   const devBuySol = body.devBuySol === undefined || body.devBuySol === '' ? 0 : Number(body.devBuySol);
   if (!Number.isFinite(devBuySol) || devBuySol < 0 || devBuySol > MAX_DEV_BUY_SOL) throw new LaunchError(400, `dev buy: 0 to ${MAX_DEV_BUY_SOL} SOL`);
   const m = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(str(body.image));
@@ -185,5 +208,5 @@ export function parseLaunch(body) {
     throw new LaunchError(400, 'connect a wallet first');
   }
   if (creator.equals(mint)) throw new LaunchError(400, 'the mint must be a fresh key');
-  return { name, symbol, description, links, devBuySol, github, githubShare, image: { contentType: m[1], bytes }, creator, mint };
+  return { name, symbol, description, links, sources, devBuySol, github, githubShare, image: { contentType: m[1], bytes }, creator, mint };
 }

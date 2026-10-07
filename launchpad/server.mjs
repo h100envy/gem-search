@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { dirname } from 'node:path';
 import bs58 from 'bs58';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
+import { buildLaunch, checkSigned, LaunchError, parseLaunch, parseSources, placeSources } from './launch.mjs';
 import { scanToken } from './scan.mjs';
 import { buildLaunchTx, client as ponsClient, parseLaunchReceipt, quoteMinTokensOut, readTerms } from './pons.mjs';
 import { imageMatches } from './launch.mjs';
@@ -108,14 +108,15 @@ async function prepare(req, body) {
   const github = f.github ? await githubAccount(f.github) : null;
   const ext = f.image.contentType.split('/')[1];
   const image = await pin(`${f.symbol}.${ext}`, f.image.bytes, f.image.contentType);
-  const metadata = { name: f.name, symbol: f.symbol, description: f.description, image, showName: true, createdOn: 'https://gemsearch.fun', ...f.links };
+  const placed = placeSources({ description: f.description, twitter: f.links.twitter ?? '', website: f.links.website ?? '' }, f.sources);
+  const metadata = { name: f.name, symbol: f.symbol, description: placed.description, image, showName: true, createdOn: 'https://gemsearch.fun', ...f.links, ...(placed.twitter ? { twitter: placed.twitter } : {}), ...(placed.website ? { website: placed.website } : {}), ...(f.sources.repo ? { github: f.sources.repo } : {}), ...(f.sources.post ? { sourcePost: f.sources.post } : {}) };
   const uri = await pin(`${f.symbol}.json`, JSON.stringify(metadata), 'application/json');
   const share = github ? { githubId: github.id, bps: f.githubShare * 100 } : null;
   const b = await buildLaunch(conn, { creator: f.creator, mint: f.mint, meta: { name: f.name, symbol: f.symbol, uri }, devBuySol: f.devBuySol, table, share });
   const id = randomBytes(12).toString('hex');
   built.set(id, {
     at: Date.now(), message: b.message, pre: b.pre?.message ?? null, creator: f.creator.toBase58(), mint: f.mint.toBase58(), lastValidBlockHeight: b.lastValidBlockHeight,
-    name: f.name, symbol: f.symbol, image, devBuySol: f.devBuySol, github: github && { login: github.login, share: f.githubShare },
+    name: f.name, symbol: f.symbol, image, devBuySol: f.devBuySol, github: github && { login: github.login, share: f.githubShare }, repo: f.sources.repo, post: f.sources.post,
   });
   return { id, tx: Buffer.from(b.tx.serialize()).toString('base64'), pre: b.pre ? Buffer.from(b.pre.tx.serialize()).toString('base64') : null, uri, image, github: github && { login: github.login, id: github.id } };
 }
@@ -157,7 +158,7 @@ async function submit(body) {
   const res = await conn.confirmTransaction({ signature, blockhash: tx.message.recentBlockhash, lastValidBlockHeight: b.lastValidBlockHeight }, 'confirmed').catch(() => null);
   if (res?.value?.err) throw new LaunchError(400, `the launch failed on chain: ${JSON.stringify(res.value.err).slice(0, 200)}`);
   if (!res) return { status: 'pending', signature, mint: b.mint };
-  appendFileSync(LOG, JSON.stringify({ mint: b.mint, name: b.name, symbol: b.symbol, image: b.image, creator: b.creator, devBuySol: b.devBuySol, github: b.github, signature, at: new Date().toISOString() }) + '\n');
+  appendFileSync(LOG, JSON.stringify({ mint: b.mint, name: b.name, symbol: b.symbol, image: b.image, creator: b.creator, devBuySol: b.devBuySol, github: b.github, repo: b.repo ?? null, post: b.post ?? null, signature, at: new Date().toISOString() }) + '\n');
   return { status: 'live', signature, mint: b.mint };
 }
 
@@ -324,6 +325,8 @@ async function ponsPrepare(req, body) {
   const description = str(body?.description).slice(0, 500);
   const links = {};
   for (const k of ['website', 'twitter', 'telegram']) { const v = str(body?.[k]); if (v && !/^https:\/\/[^\s]{3,200}$/.test(v)) throw new LaunchError(400, `${k}: a full https:// link`); links[k] = v; }
+  const sources = parseSources(body);
+  const placed = placeSources({ description, twitter: links.twitter, website: links.website }, sources);
   const devBuyEth = body?.devBuyEth === undefined || body?.devBuyEth === '' ? 0 : Number(body.devBuyEth);
   if (!Number.isFinite(devBuyEth) || devBuyEth < 0 || devBuyEth > 0.5) throw new LaunchError(400, 'dev buy: 0 to 0.5 ETH');
   const taxBps = Math.round(Number(body?.creatorTaxPct ?? 0) * 100);
@@ -338,7 +341,7 @@ async function ponsPrepare(req, body) {
   if (!terms.launchEnabled) throw new LaunchError(503, 'pons has paused launches right now');
   const imageUrl = await pin(`${symbol}.${m[1].split('/')[1]}`, bytes, m[1]);
   const logo = 'ipfs://' + imageUrl.split('/ipfs/')[1];
-  const args = { creator, name, symbol, logo, description, twitter: links.twitter, telegram: links.telegram, website: links.website, feeRecipient: creator, creatorTaxBps: taxBps, devBuyEth: String(devBuyEth), terms };
+  const args = { creator, name, symbol, logo, description: placed.description.slice(0, 1800), twitter: placed.twitter, telegram: links.telegram, website: placed.website, feeRecipient: creator, creatorTaxBps: taxBps, devBuyEth: String(devBuyEth), terms };
   let minTokensOut = 0n, salt;
   if (devBuyEth > 0) {
     try { ({ minTokensOut, salt } = await quoteMinTokensOut(args, creator, 200n, pons)); }
@@ -358,7 +361,9 @@ async function ponsConfirm(body) {
   if (receipt.status !== 'success') throw new LaunchError(400, 'the launch failed on chain');
   const l = parseLaunchReceipt(receipt);
   if (!l) throw new LaunchError(400, 'that transaction is not a pons launch');
-  const meta = { name: String(body?.name ?? '').slice(0, 40), symbol: String(body?.symbol ?? '').slice(0, 12), image: String(body?.image ?? '').slice(0, 200) };
+  let src = { repo: null, post: null };
+  try { src = parseSources(body); } catch {}
+  const meta = { name: String(body?.name ?? '').slice(0, 40), symbol: String(body?.symbol ?? '').slice(0, 12), image: String(body?.image ?? '').slice(0, 200), repo: src.repo, post: src.post };
   appendFileSync(LOG, JSON.stringify({ chain: 'robinhood', mint: l.token, curve: l.curve, creator: l.deployer, ...meta, signature: hash, at: new Date().toISOString() }) + '\n');
   return { status: 'live', token: l.token, curve: l.curve };
 }
