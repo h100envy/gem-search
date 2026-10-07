@@ -72,12 +72,40 @@ h2 small{font-size:12px;color:var(--dim);font-weight:400}
 .dev .b{height:10px;border-radius:5px;background:#1d1850;overflow:hidden}.dev .b i{display:block;height:100%;background:var(--rainbow)}
 .how{color:var(--muted);font-size:15px}.how p{margin:0 0 10px}
 footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px;margin-top:30px}
+
+/* shared navigation */
+.gnav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(6,4,26,.72);border-bottom:1px solid rgba(255,255,255,.07)}
+.gnav .in{max-width:1120px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;gap:28px}
+.gnav .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font:700 20px "Space Grotesk",system-ui,sans-serif;letter-spacing:-.5px;color:#f4f0ff;flex:none}
+.gnav .brand img{width:32px;height:32px;border-radius:50%}
+.gnav .brand b{font-weight:700;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gnav .links{display:flex;gap:4px;align-items:center}
+.gnav .links a{padding:8px 12px;border-radius:10px;text-decoration:none;font:500 15px "Space Grotesk",system-ui,sans-serif;color:#b9b3e0;white-space:nowrap;transition:color .15s,background .15s}
+.gnav .links a:hover{color:#fff;background:rgba(255,255,255,.06)}
+.gnav .links a.on{color:#fff;background:rgba(255,255,255,.09)}
+.gnav .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.gnav .ic{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;color:#d9d4ff;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.03);text-decoration:none}
+.gnav .ic:hover{color:#fff;border-color:rgba(255,255,255,.3)}
+.gnav .buy{padding:9px 18px;border-radius:999px;font:700 15px "Space Grotesk",system-ui,sans-serif;text-decoration:none;color:#0a0820;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);white-space:nowrap}
+.gnav details{display:none;position:relative}
+.gnav summary{list-style:none;cursor:pointer;padding:8px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.18);font:600 14px "Space Grotesk",system-ui,sans-serif;color:#f4f0ff}
+.gnav summary::-webkit-details-marker{display:none}
+.gnav .drop{position:absolute;right:0;top:46px;min-width:200px;padding:8px;border-radius:16px;background:#120d36;border:1px solid #2a2560;box-shadow:0 20px 50px rgba(0,0,0,.5);display:grid}
+.gnav .drop a{padding:10px 12px;border-radius:10px;text-decoration:none;color:#e9e5ff;font:500 15px "Space Grotesk",system-ui,sans-serif}
+.gnav .drop a.on,.gnav .drop a:hover{background:rgba(255,255,255,.08)}
+@media (max-width:860px){.gnav .links,.gnav .ic{display:none}.gnav details{display:block}.gnav .in{gap:12px}}
 </style>
 </head>
 <body>
-<nav><div class="wrap">
-  <a class="logo" href="./"><img src="avatar.png" alt=""><span>gem<span class="rb">search</span></span></a>
-  <div class="links"><a class="btn" href="scan">Scan</a><a class="btn hide-m" href="record">Council record</a><a class="btn hide-m" href="launch">Launch</a><a class="btn primary" href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Bot</a></div>
+<nav class="gnav"><div class="in">
+  <a class="brand" href="./"><img src="avatar.png" alt=""><span>gem<b>search</b></span></a>
+  <div class="links"><a href="scan">Scan</a><a href="live" class="on">Live</a><a href="launch">Launch</a><a href="me">My bag</a><a href="record">Council</a></div>
+  <div class="right">
+    <a class="ic" href="https://x.com/gemsearchfun" target="_blank" rel="noopener" aria-label="Gem Search on X"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2Zm-1.1 18.1h1.7L6.3 3.8H4.5l13.3 16.3Z"/></svg></a>
+    <a class="ic" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener" aria-label="GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.3 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5Z"/></svg></a>
+    <details><summary>Menu</summary><div class="drop"><a href="scan">Scan</a><a href="live" class="on">Live</a><a href="launch">Launch</a><a href="me">My bag</a><a href="record">Council</a><a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">X @gemsearchfun</a><a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a><a href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Telegram bot</a></div></details>
+    <a class="buy" href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Buy</a>
+  </div>
 </div></nav>
 
 <header class="wrap">
