@@ -6,7 +6,7 @@ Open Settings and enter your Solscan Pro API key locally, then select Save Solsc
 
 Start monitoring manually, choose Until I stop or a time limit, and stop from the window or tray. Closing the window keeps the app in the tray. Quit stops the app. Your computer must remain awake for monitoring.
 
-Solscan covers Solana. Latest-token discovery samples 20 tokens per minute. Watched tokens refresh first and saved tokens rotate in batches. There is no claim of complete chain coverage. Existing token history is preserved locally, but legacy provider rows are hidden from Live tokens and Watchlist until refreshed from Solscan. Alert history remains visible.
+Solscan covers Solana. Latest-token discovery samples 20 tokens per minute. Watched tokens refresh first and saved tokens rotate in batches. There is no claim of complete chain coverage. Existing token history is preserved locally, but legacy provider rows are hidden from Live tokens and Watchlist until refreshed from Solscan. Alert history remains visible. Saved tokens exposes historical records with their original provider and sample time. When no Solscan credential is configured, Live tokens shows a connection prompt and Start monitoring opens Settings.
 
 Direct Solana RPC reads independently confirm mint identity, decimals and supply at confirmed commitment. This is the verification layer, not an alternative price source. Mint verification cannot independently prove Solscan USD prices or circulating market capitalization. Verification status and confirmed slots are available in token details. Samples older than three minutes are stale.
 

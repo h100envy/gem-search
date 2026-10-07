@@ -182,13 +182,23 @@ class DesktopWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search token name, chain or address')
         self.search.textChanged.connect(self.filter_changed)
-        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled'])]:
+        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
             page = QWidget()
             box = QVBoxLayout(page)
             box.setContentsMargins(10, 8, 10, 8)
             box.setSpacing(8)
             if name == 'Live tokens':
+                self.connection_notice = QLabel()
+                self.connection_notice.setWordWrap(True)
+                box.addWidget(self.connection_notice)
+                self.connection_button = QPushButton('Connect Solscan')
+                self.connection_button.clicked.connect(self.open_connection)
+                box.addWidget(self.connection_button)
                 box.addWidget(self.search)
+            if name == 'Saved tokens':
+                history_notice = QLabel('Saved history from earlier versions. These values are historical provider data, excluded from live Solscan results and new alerts.')
+                history_notice.setWordWrap(True)
+                box.addWidget(history_notice)
             table = TokenTable()
             table.setModel(TokenTableModel(headings, table))
             table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
@@ -272,6 +282,7 @@ class DesktopWindow(QMainWindow):
         settings_scroll.setWidgetResizable(True)
         settings_scroll.setWidget(settings_page)
         self.tabs.addTab(settings_scroll, 'Settings')
+        self.connection_tab = self.tabs.indexOf(settings_scroll)
         self.tabs.currentChanged.connect(self.refresh)
         self.tray = QSystemTrayIcon(icon(), self)
         self.tray.setToolTip('Gem Search Token Monitor')
@@ -339,7 +350,14 @@ class DesktopWindow(QMainWindow):
         self.store_snapshot = snapshot
         self.refresh()
 
+    def open_connection(self):
+        self.tabs.setCurrentIndex(self.connection_tab)
+        self.solscan_key.setFocus()
+
     def start_monitor(self):
+        if not self.monitor.client.key:
+            self.open_connection()
+            return
         self.monitor.control(True, self.duration.currentData())
         self.persist_session()
         self.refresh()
@@ -387,6 +405,11 @@ class DesktopWindow(QMainWindow):
         self.metrics['alerts'].setText(str(len(snapshot['alerts'])))
         self.metrics['watched'].setText(str(len(snapshot['watchlist'])))
         self.metrics['samples'].setText(str(state['checked']))
+        connected = bool(self.monitor.client.key)
+        self.connection_notice.setText('Solscan connection required. Your saved tokens remain available under Saved tokens. Enter your own Solscan Pro API key in Settings to enable live monitoring.' if not connected else 'Waiting for the first Solscan response.' if not tokens else '')
+        self.connection_notice.setVisible(not connected or not tokens)
+        self.connection_button.setVisible(not connected)
+        self.control_buttons['primary'].setText('Start monitoring' if connected else 'Connect Solscan')
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
@@ -394,6 +417,7 @@ class DesktopWindow(QMainWindow):
         self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
+        self.fill_table(self.tables['Saved tokens'], snapshot['tokens'], lambda r: [r['name'], r['chain'].upper(), r.get('market_cap_source', 'Unknown historical source'), money(r.get('market_cap_usd')), money(r.get('price_usd')), stamp(r.get('market_cap_updated_at'))])
         alerts = snapshot['alerts']
         self.fill_table(self.tables['Triggered alerts'], alerts, lambda r: [stamp(r['captured_at']), r['chain'], r['address'], 'Net inflow > $100k / 5m' if r['rule'] == 'net_inflow_100k_5m' else 'Market cap $40k before 5m', money(r['value_usd'])])
         for alert in sorted(alerts, key=lambda r: r['id']):
@@ -586,7 +610,14 @@ def main():
         store.record('base', '0x' + 'a' * 40, {'data_source': 'Solscan', 'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'net_inflow_m5_usd': 125000, 'flow_updated_at': time.time()})
         store.watch('base', '0x' + 'a' * 40)
         window.alerts.evaluate('base', '0x' + 'a' * 40, {'net_inflow_m5_usd': 125000})
+        store.record('solana', 'historical-fixture', {'name': 'Historical fixture', 'market_cap_usd': 50000, 'market_cap_source': 'Legacy fixture'})
         window.refresh()
+        assert window.connection_notice.isVisible()
+        window.start_monitor()
+        assert window.tabs.currentIndex() == window.connection_tab
+        assert not window.monitor.status()['enabled']
+        window.tabs.setCurrentIndex(0)
+        assert window.total_counts['Saved tokens'] == 2
         assert window.tables['Live tokens'].rowCount() == 1
         assert window.tables['Watchlist'].rowCount() == 1
         assert window.tables['Triggered alerts'].rowCount() == 1
