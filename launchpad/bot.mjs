@@ -591,7 +591,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
       return send(chatId, `🟢 <b>Clean Launch Feed on.</b> New pump.fun launches that pass these filters land here about a minute after mint (up to ${FEED_PER_HOUR} an hour):\n\n<code>${esc(describeFeed(filters))}</code>${bad.length ? `\n\nIgnored: ${esc(bad.join(' '))}` : ''}\n\nChange any: <code>/feed set dev=3 block=1</code> · stop: <code>/feed off</code>`, opts);
     }
     const cur = feedSubs[chatId];
-    return send(chatId, `🟢 <b>Clean Launch Feed</b>: the spider checks every pump.fun launch about 30 seconds after mint and sends you the ones that pass your filters: no buys in the launch block, a small dev buy, real links, not a serial launcher, not a dev the spider has seen in bundle crews.\n\n${cur ? `On, with:\n<code>${esc(describeFeed(cur.filters))}</code>` : `Off. Start with the defaults: <code>/feed on</code>\nor your own: <code>/feed on dev=3 block=0 links=2</code>`}\n\nA clean launch is not a good trade: most coins still go nowhere. The feed removes the obvious traps, the rest is yours.`, opts);
+    return send(chatId, `🟢 <b>Clean Launch Feed</b>: the spider checks every pump.fun launch about 30 seconds after mint and sends you the ones that pass your filters: no buys in the launch block, a small dev buy, real links, not a serial launcher, not a dev the spider has seen in bundle crews, not a copy of a ticker launched earlier today.\n\n${cur ? `On, with:\n<code>${esc(describeFeed(cur.filters))}</code>` : `Off. Start with the defaults: <code>/feed on</code>\nor your own: <code>/feed on dev=3 block=0 links=2</code>`}\n\nA clean launch is not a good trade: most coins still go nowhere. The feed removes the obvious traps, the rest is yours.`, opts);
   }
   async function feedPass() {
     feedSubs ??= await loadJson(feedPath, {});
@@ -613,7 +613,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         const links = [['X', row.twitter], ['site', row.website], ['TG', row.telegram]].filter(([, u]) => u).map(([n, u]) => `<a href="${esc(u)}">${n}</a>`).join(' · ');
         const age = Math.max(1, Math.round((now - row.t) / 1000));
         const text = `🟢 <b>Clean launch</b> · ${esc(row.name)} <b>$${esc(row.symbol)}</b> · ${age < 120 ? age + 's' : Math.round(age / 60) + 'm'} old\n\n` +
-          `Launch block: <b>${row.same_slot} other buys</b>\nDev buy: <b>${row.dev_buy_pct ?? 0}%</b>\nDev's coins in 24h: <b>${(row.dev_24h ?? 0) + 1}</b>\nCrew memory: <b>${row.crew ? 'seen before' : 'not seen'}</b>\nLinks: ${links || 'none'}\n\n<code>${esc(row.mint)}</code>\n<i>Clean ≠ good. Not financial advice.</i>`;
+          `Launch block: <b>${row.same_slot} other buys</b>\nDev buy: <b>${row.dev_buy_pct ?? 0}%</b>\nDev's coins in 24h: <b>${(row.dev_24h ?? 0) + 1}</b>\nCrew memory: <b>${row.crew ? 'seen before' : 'not seen'}</b>\nTicker: <b>${row.clones ? row.clones + ' earlier copies today' : 'first today'}</b>\nLinks: ${links || 'none'}\n\n<code>${esc(row.mint)}</code>\n<i>Clean ≠ good. Not financial advice.</i>`;
         await send(chatId, text, { reply_markup: { inline_keyboard: [[{ text: 'pump.fun', url: `https://pump.fun/coin/${row.mint}` }, { text: '🔎 Scan', url: `${SITE}/scan?ca=${row.mint}` }, { text: '🔥 Roast', callback_data: `r:${row.mint}` }]] } }).catch((e) => {
           if (e.code === 403) delete feedSubs[chatId]; // the bot was blocked or removed
           log.error('[feed] send', clean(e));

@@ -7,6 +7,9 @@
 export function initFeed(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS feed (id INTEGER PRIMARY KEY, mint TEXT UNIQUE, t INTEGER, name TEXT, symbol TEXT, creator TEXT, same_slot INTEGER, dev_buy_pct REAL, mc_sol REAL, twitter TEXT, website TEXT, telegram TEXT, image TEXT, dev_24h INTEGER, crew INTEGER);
     CREATE INDEX IF NOT EXISTS feed_creator ON feed(creator, t);`);
+  const cols = db.prepare('PRAGMA table_info(feed)').all().map((c) => c.name);
+  if (!cols.includes('clones')) db.exec('ALTER TABLE feed ADD COLUMN clones INTEGER');
+  db.exec('CREATE INDEX IF NOT EXISTS feed_symbol ON feed(symbol COLLATE NOCASE, t)');
 }
 
 const httpsUrl = (v) => (typeof v === 'string' && /^https:\/\/[^\s]{3,200}$/.test(v.trim()) ? v.trim() : null);
@@ -31,12 +34,13 @@ function crewHit(db, creator) {
 
 export function addToFeed(db, coin, sameSlot, meta) {
   const dev24h = coin.creator ? db.prepare('SELECT COUNT(*) AS n FROM feed WHERE creator = ? AND t > ?').get(coin.creator, coin.t - 86_400_000).n : 0;
-  db.prepare(`INSERT OR IGNORE INTO feed (mint, t, name, symbol, creator, same_slot, dev_buy_pct, mc_sol, twitter, website, telegram, image, dev_24h, crew)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(coin.mint, coin.t, coin.name, coin.symbol, coin.creator ?? null, sameSlot, coin.devBuyPct ?? null, coin.mcSol ?? null, meta.twitter ?? null, meta.website ?? null, meta.telegram ?? null, meta.image ?? null, dev24h, crewHit(db, coin.creator));
+  const clones = db.prepare('SELECT COUNT(*) AS n FROM feed WHERE symbol = ? COLLATE NOCASE AND t > ?').get(coin.symbol, coin.t - 86_400_000).n;
+  db.prepare(`INSERT OR IGNORE INTO feed (mint, t, name, symbol, creator, same_slot, dev_buy_pct, mc_sol, twitter, website, telegram, image, dev_24h, crew, clones)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(coin.mint, coin.t, coin.name, coin.symbol, coin.creator ?? null, sameSlot, coin.devBuyPct ?? null, coin.mcSol ?? null, meta.twitter ?? null, meta.website ?? null, meta.telegram ?? null, meta.image ?? null, dev24h, crewHit(db, coin.creator), clones);
 }
 
-export const DEFAULTS = { block: 0, dev: 5, links: 1, serial: 2, crew: 0 };
-const KEYS = { block: 'max buys in the launch block', dev: 'max dev buy, % of supply', links: 'min links (X / site / Telegram)', serial: 'max coins this dev launched in 24h', crew: 'allow devs seen in crew memory (0 = no)' };
+export const DEFAULTS = { block: 0, dev: 5, links: 1, serial: 2, crew: 0, clones: 0 };
+const KEYS = { block: 'max buys in the launch block', dev: 'max dev buy, % of supply', links: 'min links (X / site / Telegram)', serial: 'max coins this dev launched in 24h', crew: 'allow devs seen in crew memory (0 = no)', clones: 'max earlier coins with the same ticker in 24h' };
 
 /** "/feed on dev=3 block=1" → filters; unknown keys and bad numbers are reported, not guessed. */
 export function parseFilters(arg, base = DEFAULTS) {
@@ -53,5 +57,5 @@ export const describe = (f) => Object.keys(KEYS).map((k) => `${k}=${f[k]} — ${
 
 export function passes(row, f) {
   const links = [row.twitter, row.website, row.telegram].filter(Boolean).length;
-  return row.same_slot !== null && row.same_slot <= f.block && (row.dev_buy_pct ?? 0) <= f.dev && links >= f.links && (row.dev_24h ?? 0) + 1 <= f.serial && (f.crew >= 1 || !row.crew);
+  return row.same_slot !== null && row.same_slot <= f.block && (row.dev_buy_pct ?? 0) <= f.dev && links >= f.links && (row.dev_24h ?? 0) + 1 <= f.serial && (f.crew >= 1 || !row.crew) && (row.clones ?? 0) <= (f.clones ?? Infinity);
 }

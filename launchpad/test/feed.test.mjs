@@ -14,10 +14,12 @@ test('filters parse and launches match them', () => {
   assert.equal(passes({ ...clean, dev_24h: 5 }, DEFAULTS), false);
   assert.equal(passes({ ...clean, crew: 3 }, DEFAULTS), false);
   assert.ok(passes({ ...clean, crew: 3 }, { ...DEFAULTS, crew: 1 }));
+  assert.equal(passes({ ...clean, clones: 2 }, DEFAULTS), false);
 });
 
 test('a serial launcher is counted across the day', () => {
   const db = openDb(':memory:'); initFeed(db);
   for (let i = 0; i < 3; i++) addToFeed(db, { mint: 'm' + i, t: 1000 + i, creator: 'dev', name: 'n', symbol: 's', devBuyPct: 1 }, 0, {});
   assert.equal(db.prepare("SELECT dev_24h FROM feed WHERE mint = 'm2'").get().dev_24h, 2);
+  assert.equal(db.prepare("SELECT clones FROM feed WHERE mint = 'm2'").get().clones, 2);
 });
