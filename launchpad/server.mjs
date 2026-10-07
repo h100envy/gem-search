@@ -7,7 +7,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
 import { scanToken } from './scan.mjs';
 import { xrayToken } from './xray.mjs';
-import { crewOf, openDb } from './crews.mjs';
+import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 
 /**
  * gemsearch.fun's launchpad API. The page makes the coin's mint key and the creator's wallet signs; this server only
@@ -218,7 +218,14 @@ let crewDb = null;
 function crew(mint) {
   try { new PublicKey(mint); } catch { throw new LaunchError(400, 'that is not a Solana address'); }
   crewDb ??= openDb(env('CREWS_DB', '/data/crews.db'));
-  return crewOf(crewDb, mint);
+  const since = crewDb.prepare('SELECT MIN(t) AS t FROM launches').get().t ?? null;
+  const recorded = { since, ...crewOf(crewDb, mint) };
+  if (recorded.known) return { ...recorded, source: 'recorded' };
+  // Not in the database: start from the wallets and funders this coin's X-ray found, if it was X-rayed.
+  const x = xrays.get(mint)?.value;
+  if (!x) return { since, known: false, needsXray: true };
+  const { wallets, funders } = linksFromXray(x);
+  return { since, known: true, source: 'xray', crew: crewFromLinks(crewDb, mint, wallets, funders) };
 }
 
 async function status(signature) {

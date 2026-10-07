@@ -1,5 +1,6 @@
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { createRadar } from './bot/radar.mjs';
+import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -234,6 +235,14 @@ export const TOKEN_TEXT = [
 export const visibleLength = (html) => String(html).replace(/<[^>]+>/g, '').replace(/&(lt|gt|amp|quot);/g, '_').length;
 
 /** A caption that fits (≤ max visible characters, cut between lines) and the rest for a follow-up message. */
+/** One or two lines about the coin's crew, for the X-ray caption. */
+export function formatCrew(c) {
+  if (!c) return '';
+  if (!c.crew) return '\n\n🧠 <b>Bundle Crew:</b> no known crew in the spider\'s memory yet.';
+  const k = c.crew;
+  return `\n\n🧠 <b>Bundle Crew: seen before.</b> ${k.walletsHere} wallet${k.walletsHere === 1 ? '' : 's'} here ${k.walletsHere === 1 ? 'shares' : 'share'} funders with wallets from <b>${k.launches}</b> other launch${k.launches === 1 ? '' : 'es'}. 1h later: ${k.under10kAt1h} went nowhere, ${k.over50kAt1h} took off${k.launches - k.judged ? `, ${k.launches - k.judged} pending` : ''}. <i>A funding pattern, not a proven identity.</i>`;
+}
+
 export function splitCaption(html, max = 1024) {
   if (visibleLength(html) <= max) return [html, null];
   const lines = String(html).split('\n');
@@ -264,6 +273,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
   let me = null;
   let state = { offset: 0 };
   let watches = {}; // chatId -> { mint: { added, snap } }
+  let crewDb = null;
 
   async function tg(method, params = {}, tries = 4) {
     for (let i = 0; ; i++) {
@@ -450,12 +460,18 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     try {
       const [x, s] = await Promise.all([xray(mint), scan(mint).catch(() => null)]);
       const kb = { inline_keyboard: [[{ text: '🔎 See the web', url: `${SITE}/scan?ca=${mint}` }]] };
+      let crewLine = '';
       try {
-        await sendPhoto(chatId, await xrayPng(x, s), formatXray(x, s), { reply_markup: kb, reply_to_message_id: replyTo });
+        crewDb ??= openDb(join(dataDir, 'crews.db'));
+        const rec = crewOf(crewDb, mint);
+        crewLine = formatCrew(rec.known ? rec : (() => { const l = linksFromXray(x); return { crew: crewFromLinks(crewDb, mint, l.wallets, l.funders) }; })());
+      } catch (e) { log.error('[bot] crew', clean(e)); }
+      try {
+        await sendPhoto(chatId, await xrayPng(x, s), formatXray(x, s) + crewLine, { reply_markup: kb, reply_to_message_id: replyTo });
         await tg('deleteMessage', { chat_id: chatId, message_id: msg.message_id }).catch(() => {});
       } catch (e) {
         log.error('[bot] xray card', clean(e));
-        await edit(chatId, msg.message_id, formatXray(x, s), { reply_markup: kb });
+        await edit(chatId, msg.message_id, formatXray(x, s) + crewLine, { reply_markup: kb });
       }
     } catch (e) {
       await edit(chatId, msg.message_id, errorText(e)).catch(() => {});

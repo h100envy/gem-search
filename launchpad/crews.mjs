@@ -95,38 +95,57 @@ const ignoredFunder = (db, f) => !f || EXCHANGES.has(f) || db.prepare('SELECT CO
  * The crew behind a coin: its launch-block buyers and dev, the wallets that funded them, and every other recorded
  * launch where wallets funded from those same sources bought in the launch block, with how those coins ended.
  */
+/**
+ * The same crew lookup for a coin the database never recorded (launched before collection began, or no launch-block
+ * buys): starts from wallets and funders an X-ray found, and looks for them in everything recorded.
+ */
+export function linksFromXray(x) {
+  const wallets = x.nodes.filter((n) => n.kind === 'dev' || n.kind === 'bundle' || n.kind === 'sniper' || n.cluster !== null).filter((n) => n.kind !== 'funder').map((n) => n.id);
+  const funders = [...new Set([...x.nodes.filter((n) => n.kind === 'funder').map((n) => n.id), ...x.edges.filter((e) => e.kind === 'sol' || e.kind === 'funded').map((e) => e.from)])];
+  return { wallets, funders };
+}
+
+export function crewFromLinks(db, mint, wallets, funders = []) {
+  const funderOfW = (w) => db.prepare('SELECT funder FROM funding WHERE wallet = ?').get(w)?.funder;
+  const candidates = new Set([...funders, ...wallets.map(funderOfW)].filter((f) => !ignoredFunder(db, f)));
+  // A funder links this coin to the crew only if wallets it funded (or it itself) also show up in other launches.
+  const kept = [], crewWallets = new Set(), others = new Map();
+  for (const f of candidates) {
+    const set = new Set([f, ...db.prepare('SELECT wallet FROM funding WHERE funder = ?').all(f).map((r) => r.wallet)]);
+    const mints = new Map();
+    for (const w of set) {
+      for (const r of db.prepare('SELECT mint FROM buys WHERE wallet = ? AND mint != ?').all(w, mint)) mints.set(r.mint, (mints.get(r.mint) ?? 0) + 1);
+      for (const r of db.prepare('SELECT mint FROM launches WHERE creator = ? AND mint != ?').all(w, mint)) mints.set(r.mint, (mints.get(r.mint) ?? 0) + 1);
+    }
+    if (!mints.size) continue;
+    kept.push(f);
+    for (const w of set) crewWallets.add(w);
+    for (const [m, n] of mints) others.set(m, (others.get(m) ?? 0) + n);
+  }
+  const here = wallets.filter((w) => crewWallets.has(w) || kept.includes(funderOfW(w)));
+  if (!kept.length || !here.length) return null;
+  const rows = [...others.keys()].map((m) => ({ ...db.prepare('SELECT mint, t, name, symbol, same_slot AS sameSlot, mc0 FROM launches WHERE mint = ?').get(m), ...(db.prepare('SELECT mc1h, mc24h FROM outcomes WHERE mint = ?').get(m) ?? {}), wallets: others.get(m) })).filter((r) => r.mint);
+  const judged = rows.filter((r) => r.mc1h !== undefined && r.mc1h !== null);
+  return {
+    walletsHere: here.length,
+    funders: kept,
+    wallets: crewWallets.size,
+    launches: rows.length,
+    judged: judged.length,
+    under10kAt1h: judged.filter((r) => r.mc1h < 10_000).length,
+    over50kAt1h: judged.filter((r) => r.mc1h >= 50_000).length,
+    history: rows.sort((x, y) => y.t - x.t).slice(0, 20),
+  };
+}
+
+/**
+ * The crew behind a recorded coin: its launch-block buyers and dev, the wallets that funded them, and every other
+ * recorded launch where wallets funded from those same sources bought in the launch block, with how those coins ended.
+ */
 export function crewOf(db, mint) {
   const launch = db.prepare('SELECT * FROM launches WHERE mint = ?').get(mint);
-  const wallets = db.prepare('SELECT wallet FROM buys WHERE mint = ?').all(mint).map((r) => r.wallet);
-  if (launch?.creator) wallets.push(launch.creator);
   if (!launch) return { known: false };
-  const funders = new Set();
-  for (const w of wallets) { const f = db.prepare('SELECT funder FROM funding WHERE wallet = ?').get(w)?.funder; if (!ignoredFunder(db, f)) funders.add(f); }
-  // Wallets of this crew: funded by the same sources, or the funders themselves buying.
-  const crewWallets = new Set(wallets.filter((w) => funders.has(db.prepare('SELECT funder FROM funding WHERE wallet = ?').get(w)?.funder)));
-  for (const f of funders) { crewWallets.add(f); for (const r of db.prepare('SELECT wallet FROM funding WHERE funder = ?').all(f)) crewWallets.add(r.wallet); }
-  const linkedHere = wallets.filter((w) => crewWallets.has(w));
-  if (!funders.size || linkedHere.length < 2) return { known: true, crew: null, launch: { t: launch.t, sameSlot: launch.same_slot, buyers: wallets.length } };
-  const others = new Map();
-  for (const w of crewWallets) for (const r of db.prepare('SELECT mint FROM buys WHERE wallet = ? AND mint != ?').all(w, mint)) others.set(r.mint, (others.get(r.mint) ?? 0) + 1);
-  for (const w of crewWallets) for (const r of db.prepare('SELECT mint FROM launches WHERE creator = ? AND mint != ?').all(w, mint)) others.set(r.mint, (others.get(r.mint) ?? 0) + 1);
-  const rows = [...others.keys()].map((m) => ({ ...db.prepare('SELECT mint, t, name, symbol, same_slot AS sameSlot, mc0 FROM launches WHERE mint = ?').get(m), ...(db.prepare('SELECT mc1h, mc24h FROM outcomes WHERE mint = ?').get(m) ?? {}), wallets: others.get(m) }));
-  const judged = rows.filter((r) => r.mc1h !== undefined && r.mc1h !== null);
-  // pump.fun coins start near $4-5K, so an hour in: under $10K went nowhere, over $50K took off.
-  const flat = judged.filter((r) => r.mc1h < 10_000).length;
-  const ran = judged.filter((r) => r.mc1h >= 50_000).length;
-  return {
-    known: true,
-    launch: { t: launch.t, sameSlot: launch.same_slot, buyers: wallets.length },
-    crew: {
-      walletsHere: linkedHere.length,
-      funders: [...funders],
-      wallets: crewWallets.size,
-      launches: rows.length,
-      judged: judged.length,
-      under10kAt1h: flat,
-      over50kAt1h: ran,
-      history: rows.sort((a, b) => b.t - a.t).slice(0, 20),
-    },
-  };
+  const wallets = db.prepare('SELECT wallet FROM buys WHERE mint = ?').all(mint).map((r) => r.wallet);
+  if (launch.creator) wallets.push(launch.creator);
+  return { known: true, launch: { t: launch.t, sameSlot: launch.same_slot, buyers: wallets.length }, crew: crewFromLinks(db, mint, wallets) };
 }
