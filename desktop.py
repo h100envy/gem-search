@@ -21,6 +21,7 @@ from desktop_store import DesktopStore
 from dex_monitor import DexMonitor
 from wallet_ingestion import WalletIngestion
 from token_lookup import lookup_key, lookup_token
+from token_search_view import TokenSearchCard, TokenDetailsDialog
 from desktop_credentials import load_key, save_key
 from cielo_client import CieloClient
 from kolscan_directory import bundled_wallets, read_wallets, SOURCE, CAPTURED
@@ -387,27 +388,27 @@ class DesktopWindow(QMainWindow):
                 self.filter_summary_label = QLabel()
                 self.filter_summary_label.setWordWrap(True)
                 box.addWidget(self.filter_summary_label)
-                self.lookup_panel = QWidget()
-                lookup_box = QVBoxLayout(self.lookup_panel)
-                self.lookup_label = QLabel()
-                self.lookup_label.setWordWrap(True)
-                self.lookup_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-                lookup_box.addWidget(self.lookup_label)
+                self.lookup_panel = TokenSearchCard()
+                lookup_box = self.lookup_panel.layout()
+                self.lookup_label = self.lookup_panel.status
                 self.lookup_choices = QComboBox()
                 self.lookup_choices.currentIndexChanged.connect(self.render_lookup)
                 lookup_box.addWidget(self.lookup_choices)
-                lookup_actions = QHBoxLayout()
+                lookup_actions = self.lookup_panel.actions
+                self.lookup_details = QPushButton('View token')
+                self.lookup_details.setObjectName('primary')
+                self.lookup_details.clicked.connect(self.show_lookup_details)
+                lookup_actions.addWidget(self.lookup_details)
                 self.lookup_watch = QPushButton('Watch token')
                 self.lookup_watch.clicked.connect(self.watch_lookup)
                 lookup_actions.addWidget(self.lookup_watch)
                 self.lookup_explorer = QPushButton('Open token explorer')
                 self.lookup_explorer.clicked.connect(self.open_lookup_explorer)
                 lookup_actions.addWidget(self.lookup_explorer)
-                lookup_retry = QPushButton('Look up address')
-                lookup_retry.clicked.connect(self.lookup_address)
-                lookup_actions.addWidget(lookup_retry)
+                self.lookup_retry = QPushButton('Retry')
+                self.lookup_retry.clicked.connect(self.lookup_address)
+                lookup_actions.addWidget(self.lookup_retry)
                 lookup_actions.addStretch()
-                lookup_box.addLayout(lookup_actions)
                 self.lookup_panel.hide()
                 box.addWidget(self.lookup_panel)
             if name == 'Saved tokens':
@@ -440,9 +441,6 @@ class DesktopWindow(QMainWindow):
                 watch.clicked.connect(lambda checked=False, target=table, add=name == 'Live tokens': self.watch_selected(target, add))
                 actions.addWidget(copy)
                 actions.addWidget(watch)
-                market = QPushButton('Open token')
-                market.clicked.connect(lambda checked=False, target=table: self.open_market(target))
-                actions.addWidget(market)
                 explorer = QPushButton('Explorer')
                 explorer.clicked.connect(lambda checked=False, target=table: self.open_explorer(target))
                 actions.addWidget(explorer)
@@ -463,7 +461,19 @@ class DesktopWindow(QMainWindow):
             following.clicked.connect(lambda checked=False, target=name: self.turn_page(target, 1))
             actions.addWidget(previous)
             actions.addWidget(following)
-            box.addLayout(actions)
+            if name == 'Live tokens':
+                self.scanner_footer = QWidget()
+                self.scanner_footer.setLayout(actions)
+                box.addWidget(self.scanner_footer)
+                self.scanner_empty = QLabel('No tokens match your filters.\nAdjust filters or search a contract address.')
+                self.scanner_empty.setObjectName('emptyState')
+                self.scanner_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                box.addWidget(self.scanner_empty, 1)
+                self.search_space = QWidget()
+                box.addWidget(self.search_space, 1)
+                self.search_space.hide()
+            else:
+                box.addLayout(actions)
             self.page_labels[name] = page_label
             self.page_buttons[name] = (previous, following)
             self.tables[name] = table
@@ -802,7 +812,15 @@ class DesktopWindow(QMainWindow):
         timeframe = self.applied_filters.get('timeframe', 'h24')
         label = {'m5': '5M', 'h1': '1H', 'h6': '6H', 'h24': '24H'}[timeframe]
         self.filter_summary_label.setText(filter_summary(self.applied_filters, len(filtered)))
-        self.filter_button.setText('Filters (' + str(len(filtered)) + ')')
+        self.filter_button.setText('Filters')
+        self.filter_button.setToolTip(filter_summary(self.applied_filters, len(filtered)))
+        exact = bool(lookup_key(self.search.text(), self.applied_filters.get('chain', '')))
+        self.filter_summary_label.setVisible(not exact)
+        self.tables['Live tokens'].setVisible(not exact and bool(filtered))
+        self.scanner_footer.setVisible(not exact and bool(filtered))
+        self.scanner_empty.setVisible(not exact and not filtered)
+        self.search_space.setVisible(exact)
+        self.connection_notice.setVisible(bool(state['error']) and not exact)
         for name in ['Live tokens', 'Watchlist']:
             model = self.tables[name].model()
             headings = list(model.headings)
@@ -868,11 +886,18 @@ class DesktopWindow(QMainWindow):
         self.lookup_generation += 1
         generation = self.lookup_generation
         self.lookup_records = []
+        self.lookup_panel.title.setText('Searching for token')
+        self.lookup_panel.address.setText(text[:8] + '...' + text[-6:])
+        self.lookup_panel.address.setToolTip(text)
+        self.lookup_panel.market.clear()
+        self.lookup_details.hide()
+        self.lookup_watch.hide()
+        self.lookup_retry.hide()
         self.lookup_choices.hide()
         self.lookup_watch.setText('Watch token')
         self.lookup_watch.setEnabled(False)
-        self.lookup_explorer.setEnabled(False)
-        self.lookup_label.setText('Looking up ' + text + '...')
+        self.lookup_explorer.setEnabled(True)
+        self.lookup_label.setText('Fetching token information...')
         self.lookup_panel.show()
         def fetch():
             try:
@@ -895,7 +920,9 @@ class DesktopWindow(QMainWindow):
         self.lookup_choices.blockSignals(False)
         self.lookup_choices.setVisible(len(self.lookup_records) > 1)
         if not self.lookup_records:
-            self.lookup_label.setText(result.get('error', 'No market pair was returned for this address.'))
+            self.lookup_panel.title.setText('Could not load token' if result.get('error') else 'No token found')
+            self.lookup_label.setText('The connection failed. Please try again.' if result.get('error') else 'No supported market was found for this address.')
+            self.lookup_retry.show()
             return
         self.render_lookup()
 
@@ -913,9 +940,25 @@ class DesktopWindow(QMainWindow):
         if not matches(row, self.applied_filters):
             reasons.append('does not match the active scanner filters')
         explanation = 'Excluded from the scanner: ' + '; '.join(reasons) + '.' if reasons else 'Meets the current scanner filters.'
-        self.lookup_label.setText(row['name'] + ' · ' + row['chain'].upper() + '\n' + row['address'] + '\nPrice: ' + price(current_value(row, 'price_usd', 'price_sampled_at')) + ' · Market cap: ' + money(cap) + ' · Liquidity: ' + money(liquidity) + '\n' + row.get('verification_status', 'Verification unavailable') + '\n' + explanation + '\nDirect address lookup is shown independently of scanner filters.')
-        self.lookup_watch.setEnabled(True)
+        found = bool(row.get('market_pair')) or mint_status(row) == 'confirmed'
+        self.lookup_panel.title.setText(row['name'] if found and row['name'] != row['address'] else 'Token account' if found else 'No supported token found')
+        self.lookup_panel.address.setText(row['chain'].upper() + ' · ' + row['address'][:8] + '...' + row['address'][-6:])
+        self.lookup_panel.address.setToolTip(row['address'])
+        self.lookup_panel.market.setText('Market cap\n' + compact(cap) if cap is not None else '')
+        self.lookup_label.setText('Outside your scanner filters' if found and reasons else 'Token found' if found else 'No market or verified token account was returned. Check the address or retry.')
+        self.lookup_label.setToolTip(row['name'] + '\n' + explanation)
+        self.lookup_details.setVisible(found)
+        self.lookup_watch.setVisible(found)
+        self.lookup_retry.setVisible(not found)
+        self.lookup_watch.setEnabled(found)
         self.lookup_explorer.setEnabled(True)
+
+    def show_lookup_details(self):
+        if not self.lookup_records:
+            return
+        row = self.lookup_records[max(0, self.lookup_choices.currentIndex())]
+        metrics = [('Price', price(current_value(row, 'price_usd', 'price_sampled_at'))), ('Market cap', compact(current_cap(row))), ('Liquidity', compact(current_value(row, 'liquidity_usd', 'statistics_sampled_at'))), ('24h volume', compact(current_value(row, 'volume_h24_usd', 'statistics_sampled_at'))), ('Network', row['chain'].upper()), ('Account check', 'Verified' if mint_status(row) == 'confirmed' else 'Not verified')]
+        TokenDetailsDialog(row, metrics, self.lookup_label.text(), self.watch_lookup, self.open_lookup_explorer, self).exec()
 
     def watch_lookup(self):
         if self.lookup_records:
@@ -931,6 +974,11 @@ class DesktopWindow(QMainWindow):
             row = self.lookup_records[max(0, self.lookup_choices.currentIndex())]
             prefix = 'https://solscan.io/token/' if row['chain'] == 'solana' else EVM[row['chain']][2]
             QDesktopServices.openUrl(QUrl(prefix + quote(row['address'], safe='')))
+        else:
+            key = lookup_key(self.search.text(), self.applied_filters.get('chain', ''))
+            if key:
+                prefix = 'https://solscan.io/token/' if key[0] == 'solana' else EVM[key[0]][2]
+                QDesktopServices.openUrl(QUrl(prefix + quote(key[1], safe='')))
 
     def turn_page(self, name, direction):
         self.pages[name] = max(0, self.pages.get(name, 0) + direction)
@@ -1130,6 +1178,11 @@ def main():
         QLabel{background:transparent}
         QPlainTextEdit{background:#101114;color:#e7e9ed;border:1px solid #30343b;border-radius:12px;padding:12px}
         QWidget#topbar{background:#17191d;border-bottom:1px solid #30343b}
+        QWidget#searchCard{background:#17191d;border:1px solid #30343b;border-radius:12px}
+        QLabel#tokenTitle{font-size:22px;font-weight:600}
+        QLabel#metricValue{font-size:19px;font-weight:600}
+        QLabel#muted{color:#a3a9b3;font-size:12px}
+        QLabel#emptyState{color:#a3a9b3;font-size:15px;padding:36px}
         QLabel#brand{font-size:17px;font-weight:600;background:transparent}
         QLabel#pageTitle{font-size:32px;font-weight:600;letter-spacing:-1px;background:transparent}
         QLabel#eyebrow{color:#86868b;font-size:10px;font-weight:600;padding-bottom:12px}
@@ -1139,7 +1192,7 @@ def main():
         QListWidget#navigation::item:selected{background:#263753;color:#e7e9ed}
         QListWidget#navigation::item:hover{background:#252930}
         QLabel#status{color:#a3a9b3;font-size:11px;padding:8px 0;background:transparent}
-        QPushButton{background:#101114;border:1px solid #30343b;padding:8px 14px;border-radius:16px;font-weight:500}
+        QPushButton{background:#101114;border:1px solid #30343b;padding:8px 14px;border-radius:8px;font-weight:500}
         QPushButton:hover{background:#30343b}
         QPushButton#primary{background:#4285F4;color:#ffffff;border:none}
         QPushButton#orange{background:#F58220;color:#101114;border:none}
