@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Gem Search — The Narrative Spider",
+  "name": "Gem Search - The Narrative Spider",
   "version": "0.3.0",
   "description": "A local-first spider that explores visible X posts, collects evidence and hands research leads to Grok.",
   "permissions": ["activeTab", "scripting", "storage", "alarms"],
