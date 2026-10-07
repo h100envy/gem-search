@@ -21,6 +21,8 @@ def matches(record, settings, now=None):
     values['transactions'] = values['buys'] + values['sells'] if values['buys'] is not None and values['sells'] is not None else None
     if values['liquidity'] is None or values['liquidity'] < 10000 or values['cap'] is None or values['cap'] < 40000:
         return False
+    if settings.get('chain') and record.get('chain') != settings['chain']:
+        return False
     if settings.get('dex') and record.get('dex_id') != settings['dex']:
         return False
     if settings.get('confirmed_only') and mint_status(record) != 'confirmed':

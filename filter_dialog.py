@@ -1,6 +1,7 @@
 import math
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QComboBox, QCheckBox, QPushButton, QMessageBox
 from token_filters import DEFAULTS, RANGES
+from chains import CHAINS
 
 
 class FilterDialog(QDialog):
@@ -10,6 +11,11 @@ class FilterDialog(QDialog):
         self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel('Solana  ·  Liquidity ≥ $10,000  ·  Market cap ≥ $40,000'))
+        self.chain = QComboBox()
+        self.chain.addItem('All supported chains', '')
+        for chain in CHAINS:
+            self.chain.addItem(chain.capitalize(), chain)
+        layout.addWidget(self.chain)
         options = QHBoxLayout()
         self.timeframe = QComboBox()
         for label, value in [('5M', 'm5'), ('1H', 'h1'), ('6H', 'h6'), ('24H', 'h24')]:
@@ -45,7 +51,7 @@ class FilterDialog(QDialog):
         self.labels.setPlaceholderText('Pair labels, separated by commas')
         layout.addWidget(self.suffixes)
         layout.addWidget(self.labels)
-        self.confirmed = QCheckBox('Confirmed mint only')
+        self.confirmed = QCheckBox('Verified token account only')
         self.boosted = QCheckBox('Boosted only')
         layout.addWidget(self.confirmed)
         layout.addWidget(self.boosted)
@@ -68,7 +74,7 @@ class FilterDialog(QDialog):
         for key, field in self.fields.items():
             value = settings.get(key)
             field.setText(str(value) if value is not None else '')
-        for combo, key in [(self.timeframe, 'timeframe'), (self.sort, 'sort'), (self.dex, 'dex')]:
+        for combo, key in [(self.timeframe, 'timeframe'), (self.sort, 'sort'), (self.dex, 'dex'), (self.chain, 'chain')]:
             index = combo.findData(settings.get(key, DEFAULTS.get(key, '')))
             combo.setCurrentIndex(max(0, index))
         self.suffixes.setText(settings.get('suffixes', ''))
@@ -77,7 +83,7 @@ class FilterDialog(QDialog):
         self.boosted.setChecked(settings.get('boosted_only', False))
 
     def apply(self):
-        result = {'timeframe': self.timeframe.currentData(), 'sort': self.sort.currentData(), 'dex': self.dex.currentData(), 'suffixes': self.suffixes.text().strip(), 'labels': self.labels.text().strip(), 'confirmed_only': self.confirmed.isChecked(), 'boosted_only': self.boosted.isChecked()}
+        result = {'chain': self.chain.currentData(), 'timeframe': self.timeframe.currentData(), 'sort': self.sort.currentData(), 'dex': self.dex.currentData(), 'suffixes': self.suffixes.text().strip(), 'labels': self.labels.text().strip(), 'confirmed_only': self.confirmed.isChecked(), 'boosted_only': self.boosted.isChecked()}
         try:
             for key, field in self.fields.items():
                 if field.text().strip():

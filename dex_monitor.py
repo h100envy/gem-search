@@ -7,6 +7,8 @@ from urllib.request import Request, urlopen
 from solscan_monitor import SolscanMonitor
 from onchain import solana_supplies
 from market_metrics import metric
+from chains import CHAINS, address_key
+from evm_onchain import evm_supplies
 
 
 def request(path):
@@ -18,15 +20,16 @@ def request(path):
     return json.loads(raw)
 
 
-def select_pairs(pairs, addresses, captured):
+def select_pairs(pairs, addresses, captured, chain='solana'):
     if not isinstance(pairs, list):
         raise ValueError('Invalid market response')
     selected = {}
     for pair in pairs:
-        if not isinstance(pair, dict) or pair.get('chainId') != 'solana':
+        if not isinstance(pair, dict) or pair.get('chainId') != chain:
             continue
         base = pair.get('baseToken') or {}
-        address = base.get('address')
+        key = address_key(chain, base.get('address'))
+        address = key[1] if key else None
         if address not in addresses or not isinstance(pair.get('pairAddress'), str):
             continue
         liquidity = metric((pair.get('liquidity') or {}).get('usd'))
@@ -42,7 +45,7 @@ def select_pairs(pairs, addresses, captured):
         txns = (pair.get('txns') or {}).get('m5') or {}
         selected[address] = {'name': base.get('name') or base.get('symbol') or address, 'data_source': 'DexScreener', 'market_cap_source': 'DexScreener', 'market_cap_usd': metric(pair.get('marketCap')), 'market_cap_updated_at': captured, 'price_usd': price, 'price_source': 'DexScreener', 'price_sampled_at': captured, 'liquidity_usd': liquidity, 'volume_m5_usd': metric(volume.get('m5')), 'volume_h24_usd': metric(volume.get('h24')), 'volume_m1_usd': None, 'buy_count_m5': metric(txns.get('buys')), 'sell_count_m5': metric(txns.get('sells')), 'statistics_sampled_at': captured, 'market_pair': pair['pairAddress'], 'pair_created_at': metric(pair.get('pairCreatedAt')), 'token_created_at': None, 'net_inflow_m5_usd': None, 'flow_updated_at': None, 'flow_method': None, 'verification_status': 'Pending mint verification', 'onchain_supply_sampled_at': None}
     for address, fields in selected.items():
-        pair = next(pair for pair in pairs if isinstance(pair, dict) and pair.get('chainId') == 'solana' and pair.get('pairAddress') == fields['market_pair'] and (pair.get('baseToken') or {}).get('address') == address)
+        pair = next(pair for pair in pairs if isinstance(pair, dict) and pair.get('chainId') == chain and pair.get('pairAddress') == fields['market_pair'] and address_key(chain, (pair.get('baseToken') or {}).get('address')) == (chain, address))
         fields['dex_id'] = str(pair.get('dexId') or '')
         fields['fdv_usd'] = metric(pair.get('fdv'))
         fields['pair_labels'] = [str(label) for label in pair.get('labels', [])] if isinstance(pair.get('labels'), list) else []
@@ -65,6 +68,8 @@ class DexMonitor(SolscanMonitor):
         self.discovery_at = 0
         self.discovered = []
         self.rotation = 0
+        self.verification_cache = {}
+        self.verification_rotation = 0
         self.flow_error = 'Net flow requires USD buy and sell totals; this feed supplies volume and trade counts.'
 
     def set_key(self, key):
@@ -73,7 +78,7 @@ class DexMonitor(SolscanMonitor):
 
     def status(self):
         state = super().status()
-        state['coverage'] = 'Solana profiles, boosted entries, saved and watched tokens; incomplete market coverage'
+        state['coverage'] = 'Solana and supported EVM profiles, boosted entries, saved and watched tokens; incomplete market coverage'
         state['refresh_seconds'] = 15
         state['market_cap_rule'] = 'Reported market capitalization; mint verification does not verify USD valuation'
         return state
@@ -86,7 +91,7 @@ class DexMonitor(SolscanMonitor):
             self.last_poll = time.monotonic()
         self.error = self.valuation_error = None
         self.checked = self.skipped = 0
-        previous = {row['address']: row for row in (self.tracked() if self.tracked else []) if row.get('chain') == 'solana'}
+        previous = {key: row for row in (self.tracked() if self.tracked else []) if (key := address_key(row.get('chain'), row.get('address')))}
         if time.monotonic() - self.discovery_at >= 60:
             discovered = []
             try:
@@ -94,44 +99,60 @@ class DexMonitor(SolscanMonitor):
                     rows = request(path)
                     if not isinstance(rows, list):
                         raise ValueError('Invalid discovery response')
-                    discovered.extend(row['tokenAddress'] for row in rows if isinstance(row, dict) and row.get('chainId') == 'solana' and isinstance(row.get('tokenAddress'), str))
+                    discovered.extend(key for row in rows if isinstance(row, dict) and (key := address_key(row.get('chainId'), row.get('tokenAddress'))))
                 self.discovered = list(dict.fromkeys(discovered))
                 self.discovery_at = time.monotonic()
                 self.ranking_error = None
             except (ValueError, OSError) as error:
                 self.ranking_error = 'Discovery delayed: ' + type(error).__name__
-        watched = [address for chain, address in (self.watchlist() if self.watchlist else []) if chain == 'solana']
-        priority = list(dict.fromkeys(watched + self.discovered))
+        watched = [key for chain, address in (self.watchlist() if self.watchlist else []) if (key := address_key(chain, address))]
+        discovered = [key if isinstance(key, tuple) else address_key('solana', key) for key in self.discovered]
+        priority = list(dict.fromkeys(watched + [key for key in discovered if key]))
         remaining = [address for address in previous if address not in priority]
         offset = self.rotation % max(1, len(remaining))
-        ordered = list(dict.fromkeys(priority + remaining[offset:] + remaining[:offset]))
+        ordered = list(dict.fromkeys(priority + remaining[offset:] + remaining[:offset]))[:300]
         self.rotation += max(1, 300 - len(priority))
-        ordered = [a for a in ordered if re.fullmatch(r'[1-9A-HJ-NP-Za-km-z]{32,44}', a)]
         records = {}
-        for start in range(0, min(len(ordered), 300), 30):
+        for chain in CHAINS:
+            addresses = [address for network, address in ordered if network == chain]
+            for start in range(0, len(addresses), 30):
+                if not self.active(generation):
+                    return
+                batch = addresses[start:start + 30]
+                try:
+                    quotes = select_pairs(request('tokens/v1/' + chain + '/' + ','.join(batch)), set(batch), time.time(), chain)
+                    records.update({(chain, address): fields for address, fields in quotes.items()})
+                except (ValueError, OSError) as error:
+                    self.error = 'Some quotes delayed: ' + type(error).__name__
+        samples = {key: sample for key, sample in self.verification_cache.items() if time.time() - sample['onchain_supply_sampled_at'] < 120 and key in records}
+        self.verification_cache = dict(samples)
+        evm_budget = 20
+        evm_chains = CHAINS[1:]
+        offset = self.verification_rotation % len(evm_chains)
+        self.verification_rotation += 1
+        for chain in ['solana'] + evm_chains[offset:] + evm_chains[:offset]:
+            addresses = [address for network, address in records if network == chain and (network, address) not in samples]
+            if chain != 'solana':
+                addresses = addresses[:evm_budget]
+                evm_budget -= len(addresses)
+            step = 100 if chain == 'solana' else 20
+            for start in range(0, len(addresses), step):
+                if not self.active(generation):
+                    return
+                try:
+                    batch = addresses[start:start + step]
+                    verified = solana_supplies(batch) if chain == 'solana' else evm_supplies(chain, batch)
+                    samples.update({(chain, address): sample for address, sample in verified.items()})
+                except (ValueError, OSError) as error:
+                    self.valuation_error = 'Some chain checks delayed: ' + type(error).__name__
+        self.verification_cache.update(samples)
+        for (chain, address), fields in records.items():
             if not self.active(generation):
                 return
-            addresses = ordered[start:start + 30]
-            try:
-                records.update(select_pairs(request('tokens/v1/solana/' + ','.join(addresses)), set(addresses), time.time()))
-            except (ValueError, OSError) as error:
-                self.error = 'Some quotes delayed: ' + type(error).__name__
-        samples = {}
-        addresses = list(records)
-        for start in range(0, len(addresses), 100):
-            if not self.active(generation):
-                return
-            try:
-                samples.update(solana_supplies(addresses[start:start + 100]))
-            except (ValueError, OSError) as error:
-                self.valuation_error = 'Mint check delayed: ' + type(error).__name__
-        for address, fields in records.items():
-            if not self.active(generation):
-                return
-            sample = samples.get(address)
+            sample = samples.get((chain, address))
             if sample:
                 fields.update(sample)
-                fields['verification_status'] = 'Mint account confirmed; USD value not independently verified'
-            self.observer('solana', address, fields)
+                fields['verification_status'] = 'Mint account confirmed; USD value not independently verified' if chain == 'solana' else 'Token contract confirmed; USD value not independently verified'
+            self.observer(chain, address, fields)
             self.last_success_at = time.time()
             self.skipped += 1

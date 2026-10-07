@@ -8,7 +8,7 @@ Live tokens default to highest reported market cap first among available records
 
 Start monitoring manually. Stop it manually or set a time limit. Closing the window keeps monitoring in the system tray. Quit stops the app. Monitoring cannot run while the computer is asleep or powered off.
 
-This Windows x64 preview supports Solana. Some live activity and alert features remain unavailable. Missing values are not estimated. Market values are reported values and are not independently verified USD valuations.
+This Windows x64 preview supports Solana, Ethereum, Base, BNB Chain, Arbitrum, Polygon, Optimism and Avalanche. Some live activity and alert features remain unavailable. Missing values are not estimated. Market values are reported values and are not independently verified USD valuations.
 
 Enter credentials only in the local Settings fields. API access is separate from web account access. Keys and account records stay outside the repository.
 
@@ -29,3 +29,5 @@ Filters opens a range editor with minimum and maximum liquidity, market capitali
 Proprietary trending scores, trader counts, ads and profile filters are not included because the public quote response does not provide complete data for them. Filters operate on the app's sampled discovery set and selected highest-liquidity pair.
 
 ![Example filter editor](desktop-filters.png)
+
+The Chain filter selects one network or all supported networks. Live tables identify each network, and Explorer opens its token explorer. EVM watchlist addresses are normalized while token identity remains network plus address. EVM checks validate RPC chain ID, deployed contract code, totalSupply and decimals at a recorded block. These reads do not establish circulating supply, price accuracy, finality, safety or net inflow. Verification refreshes up to 20 EVM contracts per cycle with networks rotated; unavailable or unrefreshed checks remain pending. Market quotes retain the existing refresh and sampling limits.

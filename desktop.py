@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, Q
 from market_metrics import current_flow
 from token_filters import DEFAULTS, matches, sort_key
 from filter_dialog import FilterDialog
+from chains import EVM
 from data_quality import current_cap, current_value, mint_status
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
@@ -94,8 +95,8 @@ class TokenTableModel(QAbstractTableModel):
                 return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
             if self.headings[index.column()] == 'Net 5m':
                 return 'Indexed five-minute buy volume minus sell volume. Not transfers or liquidity deposits.\nSampled: ' + stamp(record.get('flow_updated_at'))
-            if self.headings[index.column()] == 'Mint':
-                return 'Mint metadata only; does not verify USD price or market cap.\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
+            if self.headings[index.column()] == 'Check':
+                return 'Token account, supply and decimals only; does not verify USD price or market cap.\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
             return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.ForegroundRole and self.headings[index.column()] == 'Net 5m':
             flow = current_flow(self.records[index.row()])
@@ -300,7 +301,7 @@ class DesktopWindow(QMainWindow):
         self.navigation = QListWidget()
         self.navigation.setObjectName('navigation')
         rail.addWidget(self.navigation, 1)
-        rail.addWidget(QLabel('Solana'))
+        rail.addWidget(QLabel('Solana + EVM'))
         body.addWidget(sidebar)
         workspace = QWidget()
         layout = QVBoxLayout(workspace)
@@ -339,7 +340,7 @@ class DesktopWindow(QMainWindow):
         for label, value in [('$40K and above', 40000), ('$1M and above', 1000000), ('$10M and above', 10000000), ('$100M and above', 100000000)]:
             self.minimum_cap.addItem(label, value)
         self.minimum_cap.currentIndexChanged.connect(self.filter_changed)
-        self.confirmed_only = QCheckBox('Confirmed mint only')
+        self.confirmed_only = QCheckBox('Verified token account only')
         self.confirmed_only.toggled.connect(self.filter_changed)
         self.filter_panel = QWidget()
         filter_options = QHBoxLayout(self.filter_panel)
@@ -350,7 +351,7 @@ class DesktopWindow(QMainWindow):
         filter_options.addWidget(self.minimum_cap)
         filter_options.addWidget(self.confirmed_only)
         self.filter_panel.hide()
-        for name, headings in [('Live tokens', ['Token', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Mint', 'Time']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Mint', 'Time']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
+        for name, headings in [('Live tokens', ['Token', 'Chain', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Check', 'Time']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token', 'Chain', 'Price', 'Market cap', 'Vol 24h', 'Vol 5m', 'Net 5m', 'Buys / sells', 'Liquidity', 'Check', 'Time']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
             page = QWidget()
             box = QVBoxLayout(page)
             box.setContentsMargins(10, 8, 10, 8)
@@ -535,7 +536,7 @@ class DesktopWindow(QMainWindow):
         add = QPushButton('Add token to watchlist')
         add.clicked.connect(self.add_watch)
         settings.addWidget(add)
-        settings.addWidget(QLabel('COVERAGE\nSolana only. Live coverage depends on your connection access. Some activity and alert features remain unavailable.'))
+        settings.addWidget(QLabel('COVERAGE\nSolana, Ethereum, Base, BNB Chain, Arbitrum, Polygon, Optimism and Avalanche. Some activity and alert features remain unavailable.'))
         settings.addWidget(QLabel('Closing this window keeps monitoring in the system tray. Quit stops monitoring.\nUntil I stop and timed deadlines are retained when the app is reopened.\nMonitoring cannot run while your computer is asleep or powered off.'))
         settings.addWidget(QLabel('Local data: ' + str(store.directory)))
         settings.addStretch()
@@ -710,7 +711,7 @@ class DesktopWindow(QMainWindow):
         minimum = self.minimum_cap.currentData()
         filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (current_cap(r) is not None and current_cap(r) >= minimum)) and (not self.confirmed_only.isChecked() or mint_status(r) == 'confirmed') and matches(r, self.applied_filters)]
         filtered.sort(key=lambda r: sort_key(r, self.applied_filters))
-        values = lambda r: [r['name'], price(current_value(r, 'price_usd', 'price_sampled_at')), self.cap_cell(r), compact(current_value(r, 'volume_h24_usd', 'statistics_sampled_at')), compact(current_value(r, 'volume_m5_usd', 'statistics_sampled_at')), compact(current_flow(r)), (str(int(r['buy_count_m5'])) + ' / ' + str(int(r['sell_count_m5']))) if current_value(r, 'buy_count_m5', 'statistics_sampled_at') is not None and current_value(r, 'sell_count_m5', 'statistics_sampled_at') is not None else 'Unavailable', compact(current_value(r, 'liquidity_usd', 'statistics_sampled_at')), self.valuation_cell(r), time.strftime('%H:%M:%S', time.localtime(r['market_cap_updated_at']))]
+        values = lambda r: [r['name'], EVM[r['chain']][3] if r['chain'] in EVM else 'SOL', price(current_value(r, 'price_usd', 'price_sampled_at')), self.cap_cell(r), compact(current_value(r, 'volume_h24_usd', 'statistics_sampled_at')), compact(current_value(r, 'volume_m5_usd', 'statistics_sampled_at')), compact(current_flow(r)), (str(int(r['buy_count_m5'])) + ' / ' + str(int(r['sell_count_m5']))) if current_value(r, 'buy_count_m5', 'statistics_sampled_at') is not None and current_value(r, 'sell_count_m5', 'statistics_sampled_at') is not None else 'Unavailable', compact(current_value(r, 'liquidity_usd', 'statistics_sampled_at')), self.valuation_cell(r), time.strftime('%H:%M:%S', time.localtime(r['market_cap_updated_at']))]
         self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in filtered if (r['chain'], r['address']) in watched], values)
@@ -776,8 +777,8 @@ class DesktopWindow(QMainWindow):
         record = self.selected(table)
         if record and record['chain'] == 'solana':
             QDesktopServices.openUrl(QUrl('https://solscan.io/token/' + quote(record['address'], safe='')))
-        elif record:
-            QMessageBox.information(self, 'Solscan', 'Solscan covers Solana tokens. This token is on ' + record['chain'] + '.')
+        elif record and record['chain'] in EVM:
+            QDesktopServices.openUrl(QUrl(EVM[record['chain']][2] + quote(record['address'], safe='')))
 
     def copy_address(self, table):
         record = self.selected(table)
@@ -874,7 +875,7 @@ class DesktopWindow(QMainWindow):
         if row < 0 or row >= table.model().rowCount():
             return
         record = table.model().records[row]
-        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Current reported market cap: ' + money(current_cap(record)), 'Current reported price: ' + price(current_value(record, 'price_usd', 'price_sampled_at')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Mint metadata check: ' + self.valuation_cell(record) + '. Does not verify USD value.', 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net flow · 5m (buy USD minus sell USD): ' + money(current_flow(record))]))
+        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Current reported market cap: ' + money(current_cap(record)), 'Current reported price: ' + price(current_value(record, 'price_usd', 'price_sampled_at')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Token account check: ' + self.valuation_cell(record) + '. Does not verify USD value.', 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Chain block or slot: ' + str(record.get('onchain_block', record.get('onchain_slot', 'Not sampled'))), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net flow · 5m (buy USD minus sell USD): ' + money(current_flow(record))]))
 
     def show_alert_history(self):
         self.tabs.setCurrentIndex(1)

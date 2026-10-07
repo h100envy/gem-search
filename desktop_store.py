@@ -6,6 +6,9 @@ import time
 from pathlib import Path
 
 
+from chains import EVM, address_key
+
+
 class DesktopStore:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -55,6 +58,11 @@ class DesktopStore:
             return [(r[0], r[1]) for r in con.execute('SELECT chain,address FROM desktop_watchlist')]
 
     def watch(self, chain, address):
+        if chain in EVM:
+            key = address_key(chain, address)
+            if not key:
+                raise ValueError('Enter a valid EVM token address')
+            address = key[1]
         if not re.fullmatch(r'[a-z0-9_-]{1,40}', chain) or not re.fullmatch(r'[A-Za-z0-9:_-]{2,128}', address):
             raise ValueError('Enter a network ID and a token address')
         with self.connect() as con:
