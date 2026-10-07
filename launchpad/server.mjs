@@ -6,6 +6,8 @@ import bs58 from 'bs58';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
 import { scanToken } from './scan.mjs';
+import { buildLaunchTx, client as ponsClient, parseLaunchReceipt, quoteMinTokensOut, readTerms } from './pons.mjs';
+import { imageMatches } from './launch.mjs';
 import { walletHoldings } from './wallet.mjs';
 import { createCouncil, factsOf } from './council.mjs';
 import { checkVerdicts, initRecord, recordVerdict, trackRecord } from './record.mjs';
@@ -308,6 +310,59 @@ async function askCouncil(req, mint, body) {
   return council.ask(d.facts, d, body?.q);
 }
 
+// --- pons V2 on Robinhood Chain: the creator's EVM wallet sends; we pin the logo and build the calldata --------------
+const pons = ponsClient(env('ROBINHOOD_RPC_URL', 'https://rpc.mainnet.chain.robinhood.com'));
+const EVM_ADDR = /^0x[0-9a-fA-F]{40}$/;
+async function ponsPrepare(req, body) {
+  if (PAUSED) throw new LaunchError(503, 'launches are paused for a moment');
+  if (!PINATA) throw new LaunchError(503, 'launches are not switched on yet');
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  const name = str(body?.name), symbol = str(body?.symbol).replace(/^\$/, '').toUpperCase(), creator = str(body?.creator);
+  if (name.length < 2 || name.length > 32) throw new LaunchError(400, 'name: 2 to 32 characters');
+  if (!/^[A-Z0-9]{2,10}$/.test(symbol)) throw new LaunchError(400, 'ticker: 2 to 10 letters or digits');
+  if (!EVM_ADDR.test(creator)) throw new LaunchError(400, 'connect an EVM wallet first');
+  const description = str(body?.description).slice(0, 500);
+  const links = {};
+  for (const k of ['website', 'twitter', 'telegram']) { const v = str(body?.[k]); if (v && !/^https:\/\/[^\s]{3,200}$/.test(v)) throw new LaunchError(400, `${k}: a full https:// link`); links[k] = v; }
+  const devBuyEth = body?.devBuyEth === undefined || body?.devBuyEth === '' ? 0 : Number(body.devBuyEth);
+  if (!Number.isFinite(devBuyEth) || devBuyEth < 0 || devBuyEth > 0.5) throw new LaunchError(400, 'dev buy: 0 to 0.5 ETH');
+  const taxBps = Math.round(Number(body?.creatorTaxPct ?? 0) * 100);
+  if (!Number.isInteger(taxBps) || taxBps < 0 || taxBps > 500) throw new LaunchError(400, 'creator tax: 0 to 5%');
+  const m = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(str(body?.image));
+  if (!m) throw new LaunchError(400, 'image: a PNG, JPEG, WebP or GIF');
+  const bytes = new Uint8Array(Buffer.from(m[2], 'base64'));
+  if (bytes.length > 2_000_000 || !imageMatches(m[1], bytes)) throw new LaunchError(400, 'image: up to 2 MB, and the type it claims to be');
+  limit(`ip:${req.ip}`, PER_IP_HOUR, 3_600_000);
+  limit('all', PER_DAY, 86_400_000);
+  const terms = await readTerms(pons);
+  if (!terms.launchEnabled) throw new LaunchError(503, 'pons has paused launches right now');
+  const imageUrl = await pin(`${symbol}.${m[1].split('/')[1]}`, bytes, m[1]);
+  const logo = 'ipfs://' + imageUrl.split('/ipfs/')[1];
+  const args = { creator, name, symbol, logo, description, twitter: links.twitter, telegram: links.telegram, website: links.website, feeRecipient: creator, creatorTaxBps: taxBps, devBuyEth: String(devBuyEth), terms };
+  let minTokensOut = 0n, salt;
+  if (devBuyEth > 0) {
+    try { ({ minTokensOut, salt } = await quoteMinTokensOut(args, creator, 200n, pons)); }
+    catch (e) {
+      const msg = String(e.shortMessage ?? e.message);
+      throw new LaunchError(400, /insufficient|exceeds the balance|funds/i.test(msg) ? `not enough ETH on Robinhood Chain: a launch needs ${Number(terms.launchFee) / 1e18} ETH plus the dev buy plus gas` : `pons refused the launch in simulation: ${msg.slice(0, 160)}`);
+    }
+  }
+  const tx = buildLaunchTx({ ...args, minTokensOut, salt });
+  return { to: tx.to, data: tx.data, value: '0x' + tx.value.toString(16), logo, image: imageUrl, launchFeeEth: Number(terms.launchFee) / 1e18 };
+}
+async function ponsConfirm(body) {
+  const hash = String(body?.hash ?? '');
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new LaunchError(400, 'not a transaction hash');
+  const receipt = await pons.getTransactionReceipt({ hash }).catch(() => null);
+  if (!receipt) return { status: 'pending' };
+  if (receipt.status !== 'success') throw new LaunchError(400, 'the launch failed on chain');
+  const l = parseLaunchReceipt(receipt);
+  if (!l) throw new LaunchError(400, 'that transaction is not a pons launch');
+  const meta = { name: String(body?.name ?? '').slice(0, 40), symbol: String(body?.symbol ?? '').slice(0, 12), image: String(body?.image ?? '').slice(0, 200) };
+  appendFileSync(LOG, JSON.stringify({ chain: 'robinhood', mint: l.token, curve: l.curve, creator: l.deployer, ...meta, signature: hash, at: new Date().toISOString() }) + '\n');
+  return { status: 'live', token: l.token, curve: l.curve };
+}
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -358,6 +413,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'POST' && url.pathname === '/v1/pons/prepare') return send(200, await ponsPrepare(req, await readJson(req, 3_000_000)));
+    if (req.method === 'POST' && url.pathname === '/v1/pons/confirm') return send(200, await ponsConfirm(await readJson(req, 4_000)));
     if (req.method === 'GET' && url.pathname === '/v1/record') return send(200, councilRecord());
     if (req.method === 'POST' && url.pathname === '/v1/roast-bag') return send(200, await roastBag(req, await readJson(req, 8_000)));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/roast/')) return send(200, await roastCoin(req, decodeURIComponent(url.pathname.slice(10)).trim()));
