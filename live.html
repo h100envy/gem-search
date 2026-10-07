@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bundle Index — Gem Search</title>
+<meta name="description" content="Live: how many of today's pump.fun launches had other buys land in the launch block. The spider checks new coins as they launch.">
+<meta property="og:title" content="Bundle Index — how many pump.fun launches are bundled today">
+<meta property="og:description" content="Live share of today's pump.fun launches with 3+ buys in the launch block. Updated every few seconds.">
+<meta property="og:image" content="og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@gemsearchfun">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#06041a;--line:#2a2560;--text:#f4f0ff;--muted:#b9b3e0;--dim:#7d78a8;--green:#4dff6a;--cyan:#1fd2ff;--yellow:#ffe81f;--orange:#ff8a1f;--red:#ff5e8e;--rainbow:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#2b1170 0%,#120a3a 45%,var(--bg) 80%) no-repeat,var(--bg);color:var(--text);font-family:"Space Grotesk",system-ui,Arial,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+a{color:inherit}.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.rb{background:var(--rainbow);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);background:rgba(6,4,26,.6);border-bottom:1px solid rgba(255,255,255,.06)}
+nav .wrap{display:flex;align-items:center;gap:20px;height:64px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;font-size:20px;letter-spacing:-.5px}
+.logo img{width:34px;height:34px;border-radius:50%}
+nav .links{margin-left:auto;display:flex;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:999px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.04);white-space:nowrap}
+.btn.primary{background:var(--rainbow);color:#0a0820;border-color:transparent}
+@media (max-width:520px){nav .hide-m{display:none}nav .btn{padding:7px 12px;font-size:14px}}
+header{text-align:center;padding:48px 0 10px}
+.live{display:inline-flex;align-items:center;gap:8px;font-size:13px;letter-spacing:.15em;color:#cfffd8;border:1px solid rgba(77,255,106,.5);background:rgba(77,255,106,.08);padding:6px 14px;border-radius:999px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:p 1.4s infinite}@keyframes p{50%{opacity:.3}}
+.big{font-size:clamp(90px,17vw,190px);font-weight:700;line-height:1;letter-spacing:-.05em;margin:22px 0 8px}
+.sub{font-size:clamp(18px,2.4vw,24px);color:var(--muted);max-width:760px;margin:0 auto}
+.sub b{color:var(--text)}
+.meta{margin-top:14px;font-size:13px;color:var(--dim)}
+.bar{display:flex;height:16px;border-radius:999px;overflow:hidden;max-width:760px;margin:26px auto 10px;background:#140f3c}
+.bar i{display:block;height:100%;transition:width .6s}
+.legend{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.legend b{color:var(--text)}.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var(--c)}
+.grid{display:grid;grid-template-columns:1.3fr .7fr;gap:18px;margin:36px 0 18px}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:linear-gradient(180deg,rgba(19,15,56,.92),rgba(12,9,40,.92));border:1px solid var(--line);border-radius:22px;padding:22px;position:relative}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:22px 22px 0 0;background:var(--rainbow);opacity:.85}
+h2{font-size:18px;margin:0 0 14px;display:flex;justify-content:space-between;align-items:baseline}
+h2 small{font-size:12px;color:var(--dim);font-weight:400}
+.feed{display:grid;gap:6px;max-height:560px;overflow:hidden}
+.row{display:grid;grid-template-columns:auto 1fr auto auto;gap:12px;align-items:center;padding:9px 12px;border-radius:12px;background:#0a0822;border:1px solid #1d1850;text-decoration:none;animation:in .5s}
+@keyframes in{from{opacity:0;transform:translateY(-8px)}}
+.row:hover{border-color:#5b4fd0}
+.tag{font:600 11px "JetBrains Mono",monospace;letter-spacing:.06em;padding:3px 8px;border-radius:999px;border:1px solid}
+.t-bundled{color:var(--orange);border-color:rgba(255,138,31,.6);background:rgba(255,138,31,.1)}
+.t-sniped{color:var(--yellow);border-color:rgba(255,232,31,.5)}
+.t-clean{color:var(--green);border-color:rgba(77,255,106,.5)}
+.t-unknown{color:var(--dim);border-color:#3b3580}
+.row .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row .n b{font-weight:700}.row .n span{color:var(--cyan);font-size:13px}
+.row .s{font-size:13px;color:var(--muted)}
+.row .a{font-size:12px;color:var(--dim)}
+.hours{display:flex;align-items:flex-end;gap:3px;height:150px;margin-top:6px}
+.hours div{flex:1;background:#1d1850;border-radius:4px 4px 0 0;position:relative;min-height:2px}
+.hours div i{position:absolute;inset:auto 0 0 0;background:linear-gradient(0deg,#ff2e7e,#ff8a1f);border-radius:4px 4px 0 0}
+.hl{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:4px}
+.top a{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid rgba(255,255,255,.06);text-decoration:none;font-size:14px}
+.top a:first-child{border-top:0}
+.top a b{color:var(--orange)}
+.cards2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+@media (max-width:860px){.cards2{grid-template-columns:1fr}}
+.dev{display:grid;gap:10px}
+.dev div{display:grid;grid-template-columns:110px 1fr 54px;gap:10px;align-items:center;font-size:14px;color:var(--muted)}
+.dev .b{height:10px;border-radius:5px;background:#1d1850;overflow:hidden}.dev .b i{display:block;height:100%;background:var(--rainbow)}
+.how{color:var(--muted);font-size:15px}.how p{margin:0 0 10px}
+footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px;margin-top:30px}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="logo" href="./"><img src="avatar.png" alt=""><span>gem<span class="rb">search</span></span></a>
+  <div class="links"><a class="btn" href="scan">Scan</a><a class="btn hide-m" href="launch">Launch</a><a class="btn primary" href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Bot</a></div>
+</div></nav>
+
+<header class="wrap">
+  <span class="live mono"><span class="dot"></span>BUNDLE INDEX · LIVE</span>
+  <div class="big rb" id="pct">–%</div>
+  <div class="sub">of today's pump.fun launches had <b>3 or more other buys in the very block the coin was created in</b>.</div>
+  <div class="meta mono" id="meta">connecting to the spider…</div>
+  <div class="bar" id="bar"></div>
+  <div class="legend" id="legend"></div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <section class="card"><h2>Launches as they happen <small class="mono" id="upd"></small></h2><div class="feed" id="feed"></div></section>
+    <div style="display:grid;gap:18px;align-content:start">
+      <section class="card top"><h2>Biggest launch blocks today</h2><div id="top"></div></section>
+    </div>
+  </div>
+  <div class="cards2">
+    <section class="card"><h2>Bundled share by hour <small>UTC</small></h2><div class="hours" id="hours"></div><div class="hl mono"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div></section>
+    <section class="card"><h2>Dev's own first buy</h2><div class="dev" id="dev"></div><div class="how" style="margin-top:12px;font-size:13px">From every launch the stream saw today, as a share of supply.</div></section>
+  </div>
+  <section class="card how">
+    <h2>How the index is made</h2>
+    <p>Every new pump.fun coin arrives through a public creation stream. The spider checks a random sample of them 30 seconds after launch and counts the coin's other transactions that landed in the same block as its creation.</p>
+    <p><b style="color:var(--orange)">Bundled</b>: 3 or more. <b style="color:var(--yellow)">Sniped</b>: 1 or 2. <b style="color:var(--green)">Clean</b>: none. A Jito bundle from the dev's own wallets looks exactly like this on chain, and so do the fastest sniper bots, so the index measures launch-block buying, not who is behind it. For that, open a coin in the scanner: its Web X-ray follows who funded the wallets.</p>
+    <p>Coins the spider could not read in time are counted as unknown and left out of the percentages.</p>
+  </section>
+</main>
+
+<footer><div class="wrap">Open source · <a href="https://github.com/h100envy/gem-search/tree/launchpad/launchpad" target="_blank" rel="noopener">github.com/h100envy/gem-search</a> · <a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">@gemsearchfun</a> · Not financial advice.</div></footer>
+
+<script>
+const API = 'https://api.gemsearch.fun';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : Math.round(s / 3600) + 'h'; };
+const C = { bundled: '#ff8a1f', sniped: '#ffe81f', clean: '#4dff6a', unknown: '#3b3580' };
+let shown = new Set(), shownPct = null;
+
+function tween(el, to) {
+  const from = shownPct ?? to, t0 = performance.now();
+  const step = (now) => { const f = Math.min(1, (now - t0) / 900), v = from + (to - from) * (1 - Math.pow(1 - f, 3)); el.textContent = v.toFixed(1) + '%'; if (f < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step); shownPct = to;
+}
+
+async function load() {
+  try {
+    const r = await (await fetch(API + '/v1/index', { cache: 'no-store' })).json();
+    const d = r.today;
+    if (!d || !d.known) { $('meta').textContent = 'warming up: the spider is checking the first launches of the day…'; return; }
+    tween($('pct'), d.bundledPct);
+    $('meta').textContent = `${d.seen.toLocaleString('en-US')} launches seen today · ${d.known.toLocaleString('en-US')} checked · updated live`;
+    $('bar').innerHTML = ['bundled', 'sniped', 'clean'].map((k) => `<i style="width:${(d.counts[k] / d.known) * 100}%;background:${C[k]}"></i>`).join('');
+    $('legend').innerHTML = `<span style="--c:${C.bundled}">Bundled <b>${d.bundledPct}%</b></span><span style="--c:${C.sniped}">Sniped <b>${d.snipedPct}%</b></span><span style="--c:${C.clean}">Clean <b>${d.cleanPct}%</b></span>`;
+    // feed: new rows animate in
+    $('feed').innerHTML = d.recent.slice(0, 18).map((x) => `<a class="row" href="scan?ca=${encodeURIComponent(x.mint)}" ${shown.has(x.mint) ? 'style="animation:none"' : ''}><span class="tag t-${x.verdict}">${x.verdict.toUpperCase()}</span><span class="n"><b>${esc(x.name || 'unnamed')}</b> <span class="mono">$${esc(x.symbol)}</span></span><span class="s mono">${x.sameSlot === null ? '—' : x.sameSlot + ' in block'}</span><span class="a mono">${ago(x.t)}</span></a>`).join('');
+    d.recent.forEach((x) => shown.add(x.mint));
+    $('upd').textContent = 'click any coin to X-ray it';
+    $('top').innerHTML = d.top.length ? d.top.slice(0, 10).map((x) => `<a href="scan?ca=${encodeURIComponent(x.mint)}"><span>${esc(x.name || 'unnamed')} <span class="mono" style="color:var(--cyan)">$${esc(x.symbol)}</span></span><b class="mono">${x.sameSlot} in block</b></a>`).join('') : '<div class="how">No bundled launch yet today.</div>';
+    const max = Math.max(...d.hours.map((h) => h.checked), 1);
+    $('hours').innerHTML = d.hours.map((h, i) => `<div title="${String(i).padStart(2, '0')}:00 UTC · ${h.checked} checked · ${h.checked ? Math.round((h.bundled / h.checked) * 100) : 0}% bundled" style="height:${(h.checked / max) * 100}%"><i style="height:${h.checked ? (h.bundled / h.checked) * 100 : 0}%"></i></div>`).join('');
+    const db = d.devBuy, tot = Object.values(db).reduce((a, b) => a + b, 0) || 1;
+    $('dev').innerHTML = [['No dev buy', db.none], ['Under 5%', db.under5], ['5–10%', db.under10], ['Over 10%', db.over10]].map(([k, v]) => `<div><span>${k}</span><span class="b"><i style="width:${(v / tot) * 100}%"></i></span><span class="mono">${Math.round((v / tot) * 100)}%</span></div>`).join('');
+  } catch { $('meta').textContent = 'the index did not answer; retrying…'; }
+}
+load(); setInterval(load, 8000);
+</script>
+</body>
+</html>
