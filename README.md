@@ -36,7 +36,7 @@ Everything below is free, needs no wallet connection and runs on the open-source
 | **Bundle Crew** | The spider's memory across launches. Every pump.fun launch with buys in its launch block is recorded with who bought, who funded them and what the coin did an hour and a day later. When the same funders show up in a new coin, the scan shows that crew's earlier launches and how they ended. Memory started on October 7, 2026 |
 | **[Am I exit liquidity?](https://gemsearch.fun/me)** | Paste your own wallet: every memecoin in it is scanned and the largest positions X-rayed. One verdict weighted by position size, with a shareable card. Public balances only |
 | **[Bundle Index](https://gemsearch.fun/live)** | Live: every new pump.fun launch, 30 seconds after mint, checked for other buys in its launch block. 3+ = bundled, 1–2 = sniped, 0 = clean. Live feed, share of the day, biggest launch blocks, hourly chart, dev-buy sizes |
-| **[Telegram bot](https://t.me/gemsearchfunbot)** | `@gemsearchfunbot`: send a contract address for the scan card, `/xray` for the web with its crew line, `/watch` for before → after alerts when the dev sells, liquidity drains or the coin graduates. Works in groups |
+| **[Telegram bot](https://t.me/gemsearchfunbot)** | `@gemsearchfunbot`: send a contract address for the scan card, `/xray` for the web with its crew line, `/watch` for before → after alerts when the dev sells, liquidity drains or the coin graduates, `/track @account` to follow up to 5 X accounts: their new posts land in the chat, with a scan button when they drop a contract address. Works in groups |
 
 A crew, a cluster or a bundle is a funding pattern on chain, not a proven identity. A high score means a clean launch, not that a coin will go up.
 
