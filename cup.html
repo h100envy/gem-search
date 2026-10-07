@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Council record — Gem Search</title>
-<meta name="description" content="Every Grok Council verdict, checked 24 hours later against what the coin did. Accuracy by verdict and by seat.">
-<meta property="og:title" content="Is the Grok Council right? Its public track record">
-<meta property="og:description" content="Every APE / WATCH / AVOID verdict checked 24h later. No cherry-picking.">
+<title>Launch Cup — Gem Search</title>
+<meta name="description" content="Launch your coin on gemsearch.fun and compete for the weekly prize: the top 3 coins by market cap win $50, $20 and $10.">
+<meta property="og:title" content="Launch Cup — $50 / $20 / $10 every week for the best coins launched on gemsearch.fun">
+<meta property="og:description" content="Launch on pump.fun or pons from gemsearch.fun/launch. Top 3 by market cap win every week.">
 <meta property="og:image" content="og.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@gemsearchfun">
@@ -95,66 +95,79 @@ footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(
 .gnav .drop a.on,.gnav .drop a:hover{background:rgba(255,255,255,.08)}
 @media (max-width:980px){.gnav .links,.gnav .ic{display:none}.gnav details{display:block}.gnav .in{gap:12px}}
 </style><style>
-.seats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}@media (max-width:760px){.seats{grid-template-columns:1fr 1fr}}
-.seat{text-align:center;padding:16px;border-radius:16px;background:#0a0822;border:1px solid #241f58}
-.seat img{width:72px;height:72px;border-radius:50%;border:3px solid var(--c)}.seat b{display:block;font-size:30px;margin-top:6px}.seat small{color:var(--muted)}
-.vrow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}@media (max-width:760px){.vrow{grid-template-columns:1fr}}
-.vb{padding:16px;border-radius:16px;background:#0a0822;border:1px solid #241f58}.vb h3{margin:0 0 6px;font-size:22px}.vb p{margin:4px 0;color:var(--muted);font-size:14px}.vb p b{color:var(--text)}
-.calls a{display:grid;grid-template-columns:1fr auto auto;gap:12px;padding:9px 0;border-top:1px solid rgba(255,255,255,.06);text-decoration:none;font-size:14px}.calls a:first-child{border-top:0}
-.v-APE{color:var(--green)}.v-WATCH{color:var(--yellow)}.v-AVOID{color:var(--red)}
-.up{color:var(--green)}.dn{color:var(--red)}
+.prizes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:760px;margin:30px auto 0}
+.prize{padding:22px 16px;border-radius:20px;background:rgba(19,15,56,.85);border:1px solid var(--line);text-align:center}
+.prize b{display:block;font-size:46px;letter-spacing:-.03em}.prize small{color:var(--muted);font-size:14px}
+.p1{border-color:rgba(255,232,31,.6)}.p2{border-color:rgba(200,210,255,.45)}.p3{border-color:rgba(255,138,31,.55)}
+.count{font:600 18px "JetBrains Mono",monospace;color:#9fe9ff;margin-top:18px}
+.tbl{display:grid;gap:8px}
+.tr{display:grid;grid-template-columns:56px 52px 1fr auto auto;gap:14px;align-items:center;padding:12px 14px;border-radius:14px;background:#0a0822;border:1px solid #1d1850;text-decoration:none}
+.tr img{width:52px;height:52px;border-radius:12px;object-fit:cover;background:#120e33}
+.tr .pl{font:800 22px "JetBrains Mono",monospace;text-align:center}
+.tr .n b{display:block}.tr .n span{color:var(--cyan);font:600 13px "JetBrains Mono",monospace}
+.tr .mc{font:700 17px "JetBrains Mono",monospace}.tr .pz{font:700 14px "JetBrains Mono",monospace;color:var(--green);min-width:50px;text-align:right}
+@media (max-width:620px){.prizes{gap:8px}.prize{padding:16px 6px}.prize b{font-size:30px}.cta .btn{padding:12px 18px}.tr{grid-template-columns:40px 40px minmax(0,1fr) auto}.tr .n b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tr .pz{display:none}.tr img{width:40px;height:40px}}
+.rules li{margin:8px 0;color:var(--muted)}.rules b{color:var(--text)}
+.cta{display:flex;gap:12px;justify-content:center;margin-top:26px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 22px;border-radius:999px;font-weight:700;text-decoration:none;font-size:16px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.04);color:var(--text)}
+.btn.primary{background:var(--rainbow);color:#0a0820;border-color:transparent}
 </style>
 </head>
 <body>
 <nav class="gnav"><div class="in">
   <a class="brand" href="./"><img src="avatar.png" alt=""><span>gem<b>search</b></span></a>
-  <div class="links"><a href="scan">Scan</a><a href="live">Live</a><a href="launch">Launch</a><a href="cup">Cup</a><a href="burn">Burn</a><a href="me">My bag</a><a href="record" class="on">Council</a></div>
+  <div class="links"><a href="scan">Scan</a><a href="live">Live</a><a href="launch">Launch</a><a href="cup" class="on">Cup</a><a href="burn">Burn</a><a href="me">My bag</a><a href="record">Council</a></div>
   <div class="right">
     <a class="ic" href="https://x.com/gemsearchfun" target="_blank" rel="noopener" aria-label="Gem Search on X"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2Zm-1.1 18.1h1.7L6.3 3.8H4.5l13.3 16.3Z"/></svg></a>
     <a class="ic" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener" aria-label="GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.3 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5Z"/></svg></a>
-    <details><summary>Menu</summary><div class="drop"><a href="scan">Scan</a><a href="live">Live</a><a href="launch">Launch</a><a href="cup">Cup</a><a href="burn">Burn</a><a href="me">My bag</a><a href="record" class="on">Council</a><a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">X @gemsearchfun</a><a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a><a href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Telegram bot</a></div></details>
+    <details><summary>Menu</summary><div class="drop"><a href="scan">Scan</a><a href="live">Live</a><a href="launch">Launch</a><a href="cup" class="on">Cup</a><a href="burn">Burn</a><a href="me">My bag</a><a href="record">Council</a><a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">X @gemsearchfun</a><a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a><a href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Telegram bot</a></div></details>
     <a class="buy" href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Buy</a>
   </div>
 </div></nav>
 <header class="wrap">
-  <span class="live mono"><span class="dot"></span>GROK COUNCIL · TRACK RECORD</span>
-  <div class="big rb" id="pct">–</div>
-  <div class="sub">of the council's verdicts matched <b>what the coin did over the next 24 hours</b>.</div>
-  <div class="meta mono" id="meta">loading…</div>
+  <span class="live mono"><span class="dot"></span>LAUNCH CUP · WEEKLY</span>
+  <div class="big rb" style="font-size:clamp(64px,12vw,140px)">Launch Cup</div>
+  <div class="sub">Launch your coin on <b>gemsearch.fun</b>. Every week the <b>three most successful coins</b> launched here win.</div>
+  <div class="prizes"><div class="prize p1"><small>🥇 1st</small><b class="rb" id="z0">$50</b></div><div class="prize p2"><small>🥈 2nd</small><b id="z1">$20</b></div><div class="prize p3"><small>🥉 3rd</small><b id="z2">$10</b></div></div>
+  <div class="count" id="count">week ends in …</div>
+  <div class="cta"><a class="btn primary" href="launch">Launch a coin</a><a class="btn" href="#rules">Rules</a></div>
 </header>
 <main class="wrap">
-  <section class="card" style="margin-top:30px"><h2>Who is right most often <small>a seat is right when its own vote matched</small></h2><div class="seats" id="seats"></div></section>
-  <section class="card" style="margin-top:18px"><h2>By verdict</h2><div class="vrow" id="byv"></div></section>
-  <div class="cards2" style="margin-top:18px">
-    <section class="card calls"><h2>Best calls</h2><div id="best"></div></section>
-    <section class="card calls"><h2>Worst calls</h2><div id="worst"></div></section>
-  </div>
-  <section class="card calls"><h2>Latest verdicts <small>change since the verdict</small></h2><div id="recent"></div></section>
-  <section class="card how" style="margin-top:18px"><h2>How it is scored</h2>
-    <p>Every time the council convenes on gemsearch.fun, in the bot, or on its own when a tracked account drops a contract, the verdict is stored with the coin's market cap at that moment (one per coin every 6 hours). 24 hours later the spider reads the market cap again from DexScreener.</p>
-    <p><b class="v-AVOID">AVOID</b> was right if the coin fell 30% or more. <b class="v-APE">APE</b> was right if it rose 30% or more. <b class="v-WATCH">WATCH</b> was right if it moved less than that. Coins DexScreener no longer lists count as worth zero. Nothing is hidden or hand-picked. Past calls do not predict future ones; not financial advice.</p>
-  </section>
+  <section class="card" style="margin-top:34px"><h2>This week <small class="mono" id="meta"></small></h2><div class="tbl" id="tbl"><div class="how">Loading…</div></div></section>
+  <section class="card" style="margin-top:18px" id="lastbox" hidden><h2>Last week's winners <small class="mono" id="lastmeta"></small></h2><div class="tbl" id="last"></div></section>
+  <section class="card how rules" style="margin-top:18px" id="rules"><h2>Rules</h2><ul>
+    <li><b>Who:</b> anyone who launches a coin through <a href="launch">gemsearch.fun/launch</a>, on Solana (pump.fun) or Robinhood Chain (pons). No need to hold $GEMSEARCH.</li>
+    <li><b>Week:</b> Monday 00:00 UTC to the next Monday 00:00 UTC. The coin must be launched inside the week.</li>
+    <li><b>Ranking:</b> market cap on DexScreener when the week ends. The live table updates every minute.</li>
+    <li><b>One per creator:</b> only your best coin counts, so launching many coins does not help.</li>
+    <li><b>Clean launches only:</b> a Solana coin with 3 or more other buys in its launch block (a bundle) is out. Checked on chain.</li>
+    <li><b>Prizes:</b> $50, $20 and $10, paid by the Gem Search team to the creator wallet within 48 hours after the week ends, with the transaction posted on @gemsearchfun.</li>
+    <li>We may exclude coins that break the law, impersonate a real project or person, or game the ranking (wash trading). Not financial advice: a prize is for the creator, not a reason to buy any coin.</li>
+  </ul></section>
 </main>
-<footer><div class="wrap">Open source · <a href="https://github.com/h100envy/gem-search/tree/launchpad/launchpad" target="_blank" rel="noopener">github.com/h100envy/gem-search</a> · <a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">@gemsearchfun</a></div></footer>
+<footer><div class="wrap">Open source · <a href="https://github.com/h100envy/gem-search/tree/launchpad/launchpad" target="_blank" rel="noopener">github.com/h100envy/gem-search</a> · <a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">@gemsearchfun</a> · Not financial advice.</div></footer>
 <script>
 const API = 'https://api.gemsearch.fun';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const SEAT = { lookout: ['Lookout', '#1fd2ff'], skeptic: ['Skeptic', '#ff5e8e'], builder: ['Builder', '#4dff6a'], timing: ['Timing', '#ffe81f'] };
-const ch = (x) => x == null ? '<span style="color:var(--dim)">pending</span>' : `<span class="${x >= 0 ? 'up' : 'dn'}">${x >= 0 ? '+' : ''}${x}%</span>`;
-const row = (r, val) => `<a href="scan?ca=${encodeURIComponent(r.mint)}"><span class="mono" style="color:var(--cyan)">$${esc(r.symbol || r.mint.slice(0, 6))}</span><b class="v-${r.verdict} mono">${r.verdict}</b><span class="mono">${val}</span></a>`;
-(async () => {
+const BAD = /n[i1!]gg|f[a@]gg?ot|retard|k[i1]ke|chink|spic\b|tranny|hitler|nazi|rape|cunt/i;
+const clean = (s) => (BAD.test(String(s ?? '')) ? '•••' : s);
+const usd = (n) => !n ? '—' : '$' + (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : Math.round(n));
+const MED = ['🥇', '🥈', '🥉'];
+let end = 0;
+const row = (r) => `<a class="tr" href="${r.chain === 'robinhood' ? 'https://ponsfamily.com/token/' : 'https://pump.fun/coin/'}${encodeURIComponent(r.mint)}" target="_blank" rel="noopener"><span class="pl">${MED[r.place - 1] ?? r.place}</span>${r.image ? `<img src="${esc(r.image)}" alt="" loading="lazy">` : '<img alt="">'}<span class="n"><b>${esc(clean(r.name) || 'unnamed')}</b><span>$${esc(clean(r.symbol))}${r.chain === 'robinhood' ? ' · Robinhood' : ''}</span></span><span class="mc">${usd(r.marketCap)}</span><span class="pz">${r.prize ? '$' + r.prize : ''}</span></a>`;
+function tickCount() { const s = Math.max(0, Math.floor((end - Date.now()) / 1000)); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); $('count').textContent = end ? `week ends in ${d}d ${h}h ${m}m` : ''; }
+async function load() {
   try {
-    const d = await (await fetch(API + '/v1/record')).json();
-    $('pct').textContent = d.council.right == null ? 'soon' : d.council.right + '%';
-    $('meta').textContent = `${d.total} verdicts so far · ${d.judged} checked after 24h · ${d.pending} waiting${d.since ? ' · since ' + new Date(d.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}`;
-    $('seats').innerHTML = Object.entries(SEAT).map(([k, [n, c]]) => { const s = d.seats[k]; return `<div class="seat" style="--c:${c}"><img src="council/${k}.jpg" alt=""><b>${s?.pct ?? '–'}${s?.pct != null ? '%' : ''}</b><small>${n}${s ? ' · ' + s.right + '/' + s.n : ''}</small></div>`; }).join('');
-    $('byv').innerHTML = ['AVOID', 'WATCH', 'APE'].map((v) => { const x = d.byVerdict[v]; return `<div class="vb"><h3 class="v-${v}">${v}</h3><p>Right <b>${x.right ?? '–'}${x.right != null ? '%' : ''}</b> of ${x.n}</p><p>Median 24h change <b>${x.medianChange24h == null ? '–' : (x.medianChange24h >= 0 ? '+' : '') + x.medianChange24h + '%'}</b></p><p>Fell 50%+ <b>${x.down50 ?? '–'}${x.down50 != null ? '%' : ''}</b></p></div>`; }).join('');
-    $('best').innerHTML = d.bestCalls.length ? d.bestCalls.map((r) => row(r, ch(r.change24h))).join('') : '<div class="how">Waiting for the first 24h checks.</div>';
-    $('worst').innerHTML = d.worstCalls.length ? d.worstCalls.map((r) => row(r, ch(r.change24h))).join('') : '<div class="how">None yet.</div>';
-    $('recent').innerHTML = d.recent.length ? d.recent.map((r) => row(r, `1h ${ch(r.change1h)} · 24h ${ch(r.change24h)}`)).join('') : '<div class="how">No verdicts yet. Convene the council on any coin at gemsearch.fun/scan.</div>';
-  } catch { $('meta').textContent = 'the record did not load; try again in a minute'; }
-})();
+    const d = await (await fetch(API + '/v1/cup')).json();
+    end = d.week.end; tickCount();
+    d.prizes.forEach((p, i) => { if ($('z' + i)) $('z' + i).textContent = '$' + p; });
+    $('meta').textContent = `${d.entries} launch${d.entries === 1 ? '' : 'es'} this week${d.out.length ? ' · ' + d.out.length + ' bundled, out' : ''}`;
+    $('tbl').innerHTML = d.standings.length ? d.standings.slice(0, 25).map(row).join('') : '<div class="how">No coins launched this week yet. The first clean launch takes first place. <a href="launch" style="color:var(--cyan)">Launch one →</a></div>';
+    if (d.last && d.last.standings && d.last.standings.length) { $('lastbox').hidden = false; $('lastmeta').textContent = 'week of ' + d.last.week; $('last').innerHTML = d.last.standings.slice(0, 3).map(row).join(''); }
+  } catch { $('tbl').innerHTML = '<div class="how">The table did not load; try again in a minute.</div>'; }
+}
+load(); setInterval(load, 60000); setInterval(tickCount, 30000);
 </script>
 <script src="crawlers.js" defer></script>
 </body>
