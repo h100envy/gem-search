@@ -98,8 +98,8 @@ class TokenTableModel(QAbstractTableModel):
                 return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
             if self.headings[index.column()] == 'Net 5m':
                 return 'Indexed five-minute buy volume minus sell volume. Not transfers or liquidity deposits.\nSampled: ' + stamp(record.get('flow_updated_at'))
-            if self.headings[index.column()].startswith('Check'):
-                return 'Token account, supply and decimals only; does not verify USD price or market cap.\nCheck sampled: ' + stamp(record.get('onchain_supply_sampled_at')) + '\nS = reported sell transactions over ' + self.headings[index.column()].split()[-1] + '\nTrade counts sampled: ' + stamp(record.get('statistics_sampled_at')) + '\nA question mark means the sell count is unavailable.'
+            if self.headings[index.column()].startswith('Sells '):
+                return 'Sell transaction counts over ' + self.headings[index.column()][6:] + '\nSampled: ' + stamp(record.get('statistics_sampled_at')) + '\nA question mark means the sell count is unavailable.'
             if self.headings[index.column()].startswith('Buys '):
                 return 'Buy transaction counts over ' + self.headings[index.column()][5:] + '\nSampled: ' + stamp(record.get('statistics_sampled_at'))
             return self.cells[index.row()][index.column()]
@@ -425,7 +425,7 @@ class DesktopWindow(QMainWindow):
             table.setColumnWidth(1, 75)
             if name in ('Live tokens', 'Watchlist'):
                 table.horizontalHeader().setSectionResizeMode(9, QHeaderView.ResizeMode.Fixed)
-                table.setColumnWidth(9, 160)
+                table.setColumnWidth(9, 95)
             table.horizontalHeader().setStretchLastSection(True)
             table.verticalHeader().setDefaultSectionSize(34)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -916,7 +916,7 @@ class DesktopWindow(QMainWindow):
             model = self.tables[name].model()
             headings = list(model.headings)
             headings[4], headings[5], headings[7] = 'Vol ' + label, 'Change ' + label, 'Buys ' + label
-            headings[9] = 'Check / sells ' + label
+            headings[9] = 'Sells ' + label
             if model.headings != headings:
                 model.headings = headings
                 model.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, model.columnCount() - 1)
@@ -924,7 +924,7 @@ class DesktopWindow(QMainWindow):
             activity = activity_values(record, timeframe)
             counts = str(int(activity['buys'])) if activity['buys'] is not None else 'Unavailable'
             change = '{:+.2f}%'.format(activity['change']) if activity['change'] is not None else 'Unavailable'
-            check_sells = self.valuation_cell(record) + ' · S ' + ('{:,}'.format(int(activity['sells'])) if activity['sells'] is not None else '?')
+            check_sells = '{:,}'.format(int(activity['sells'])) if activity['sells'] is not None else '?'
             return [record['name'], EVM[record['chain']][3] if record['chain'] in EVM else 'SOL', price(current_value(record, 'price_usd', 'price_sampled_at')), self.cap_cell(record), compact(activity['volume']), change, compact(current_flow(record)), counts, compact(current_value(record, 'liquidity_usd', 'statistics_sampled_at')), check_sells, time.strftime('%H:%M:%S', time.localtime(record['market_cap_updated_at']))]
         self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
