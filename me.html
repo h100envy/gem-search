@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Am I exit liquidity? — Gem Search</title>
+<meta name="description" content="Paste your Solana wallet. The spider X-rays every memecoin in it: launch bundles still holding, linked wallets, known bundle crews, open mint or freeze. No wallet connection.">
+<meta property="og:title" content="Am I exit liquidity? Let the spider X-ray your bag">
+<meta property="og:description" content="Paste a wallet address. See which of your coins still have bundles, linked wallets or known crews behind them. Free, no connection.">
+<meta property="og:image" content="og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@gemsearchfun">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#06041a;--line:#2a2560;--text:#f4f0ff;--muted:#b9b3e0;--dim:#7d78a8;--green:#4dff6a;--cyan:#1fd2ff;--yellow:#ffe81f;--orange:#ff8a1f;--red:#ff5e8e;--rainbow:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#2b1170 0%,#120a3a 45%,var(--bg) 80%) no-repeat,var(--bg);color:var(--text);font-family:"Space Grotesk",system-ui,Arial,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+a{color:inherit}.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.rb{background:var(--rainbow);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+nav{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);background:rgba(6,4,26,.6);border-bottom:1px solid rgba(255,255,255,.06)}
+nav .wrap{display:flex;align-items:center;gap:20px;height:64px;max-width:1120px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:700;font-size:20px;letter-spacing:-.5px}
+.logo img{width:34px;height:34px;border-radius:50%}
+nav .links{margin-left:auto;display:flex;gap:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:999px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.04);color:var(--text);cursor:pointer;font-family:inherit;white-space:nowrap}
+.btn.primary{background:var(--rainbow);color:#0a0820;border-color:transparent}
+.btn:disabled{opacity:.5;cursor:wait}
+nav .btn{padding:8px 16px}
+@media (max-width:620px){nav .hide-m{display:none}nav .btn{padding:7px 12px;font-size:14px}}
+header{text-align:center;padding:56px 0 20px}
+h1{font-size:clamp(40px,7vw,76px);line-height:1;letter-spacing:-.04em;margin:0 0 14px}
+header p{color:var(--muted);font-size:18px;max-width:620px;margin:0 auto}
+form{display:flex;gap:10px;max-width:760px;margin:28px auto 0}
+form input{flex:1;min-width:0;background:#0a0822;border:1px solid var(--line);border-radius:999px;padding:15px 22px;color:var(--text);font:15px "JetBrains Mono",Menlo,monospace;outline:none}
+form input:focus{border-color:#7a6bff}
+@media (max-width:620px){form{flex-direction:column}}
+.small{font-size:13px;color:var(--dim);margin-top:10px}
+.err{max-width:760px;margin:18px auto 0;padding:12px 16px;border-radius:12px;background:rgba(255,94,142,.1);border:1px solid rgba(255,94,142,.5);color:#ffd0dd;font-size:14px;display:none}
+#out{display:none;padding:20px 0 70px}
+.card{background:linear-gradient(180deg,rgba(19,15,56,.92),rgba(12,9,40,.92));border:1px solid var(--line);border-radius:22px;padding:24px;position:relative;margin-bottom:18px}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:22px 22px 0 0;background:var(--rainbow);opacity:.85}
+.verdict{text-align:center}
+.verdict .k{font:600 13px "JetBrains Mono",monospace;letter-spacing:.2em;color:var(--dim)}
+.verdict .v{font-size:clamp(32px,6vw,58px);font-weight:700;letter-spacing:-.03em;margin:10px 0 6px;line-height:1.05}
+.verdict p{color:var(--muted);font-size:17px;margin:0}
+.lvl-high{color:var(--red)}.lvl-medium{color:var(--orange)}.lvl-low{color:var(--green)}.lvl-wait{color:var(--dim)}
+.bagbar{display:flex;height:14px;border-radius:999px;overflow:hidden;background:#140f3c;margin:20px auto 8px;max-width:640px}
+.bagbar i{display:block;height:100%;transition:width .5s}
+.leg{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.leg span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var(--c)}
+.acts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
+.coin{display:grid;grid-template-columns:52px 1fr auto;gap:14px;align-items:center;padding:14px 0;border-top:1px solid rgba(255,255,255,.07)}
+.coin:first-of-type{border-top:0}
+.coin img,.coin .ph{width:52px;height:52px;border-radius:14px;object-fit:cover;background:#0a0822;border:1px solid var(--line);display:grid;place-items:center;font-size:22px}
+.coin .n{font-weight:700;font-size:17px}.coin .n span{color:var(--cyan);font:600 14px "JetBrains Mono",monospace}
+.coin .f{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.flag{font:600 11.5px "JetBrains Mono",monospace;padding:3px 8px;border-radius:999px;border:1px solid}
+.f-high{color:var(--red);border-color:rgba(255,94,142,.55);background:rgba(255,94,142,.08)}
+.f-medium{color:var(--orange);border-color:rgba(255,138,31,.55)}
+.f-low{color:var(--green);border-color:rgba(77,255,106,.5)}
+.f-wait{color:var(--dim);border-color:#3b3580}
+.coin .r{text-align:right}.coin .r b{display:block;font:700 16px "JetBrains Mono",monospace}.coin .r a{font-size:13px;color:var(--muted)}
+.spin{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--cyan);border-top-color:transparent;animation:s .8s linear infinite;vertical-align:-1px}
+@keyframes s{to{transform:rotate(360deg)}}
+footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px}
+footer p{margin:0 0 8px;max-width:820px}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="logo" href="./"><img src="avatar.png" alt=""><span>gem<span class="rb">search</span></span></a>
+  <div class="links"><a class="btn" href="scan">Scan</a><a class="btn hide-m" href="live">Live</a><a class="btn primary" href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Bot</a></div>
+</div></nav>
+
+<header class="wrap">
+  <h1>Am I <span class="rb">exit liquidity?</span></h1>
+  <p>Paste your Solana wallet. The spider X-rays every memecoin in it: launch bundles still holding, linked wallets, known bundle crews, open mint or freeze.</p>
+  <form id="f" autocomplete="off">
+    <input id="w" placeholder="Your wallet address" spellcheck="false" aria-label="Wallet address">
+    <button class="btn primary" id="go" type="submit">X-ray my bag</button>
+  </form>
+  <div class="small">Reads public balances only. No wallet connection, no signature, nothing stored.</div>
+  <div class="err" id="err"></div>
+</header>
+
+<main class="wrap" id="out">
+  <section class="card verdict">
+    <div class="k" id="vk">YOUR BAG, X-RAYED</div>
+    <div class="v lvl-wait" id="vv"><span class="spin"></span> reading…</div>
+    <p id="vp"></p>
+    <div class="bagbar" id="bar"></div>
+    <div class="leg" id="leg"></div>
+    <div class="acts" id="acts" hidden><button class="btn primary" id="share" type="button">Share on X</button><button class="btn" id="card" type="button">Download card</button></div>
+  </section>
+  <section class="card"><div id="coins"></div><div class="small" id="more"></div></section>
+</main>
+
+<footer><div class="wrap">
+  <p>The verdict weighs each coin by what it is worth in your wallet. A coin is high risk when wallets that bought in its launch block still hold supply, when mint or freeze authority is open, or when linked wallets hold a fifth of it or more. Linked wallets, crews and bundles are funding patterns on chain, not proven identities. Not financial advice.</p>
+  <p class="mono">Open source: <a href="https://github.com/h100envy/gem-search/tree/launchpad/launchpad" target="_blank" rel="noopener">github.com/h100envy/gem-search</a></p>
+</div></footer>
+
+<script>
+const API = 'https://api.gemsearch.fun';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const BAD = /n[i1!]gg|f[a@]gg?ot|retard|k[i1]ke|chink|spic\b|tranny|hitler|nazi|rape|cunt/i;
+const clean = (s) => (BAD.test(String(s ?? '')) ? '•••' : s);
+const usd = (n) => '$' + (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : n.toFixed(n < 10 ? 2 : 0));
+const XRAY_MAX = 5;
+const LV = { high: 3, medium: 2, low: 1, wait: 0 };
+let state = null;
+
+async function get(path) {
+  const res = await fetch(API + path);
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || 'the spider did not answer; try again in a minute');
+  return j;
+}
+
+/** Flags and a level for one coin, from its scan, X-ray and crew. */
+function judge(c) {
+  const flags = [];
+  const s = c.scan, x = c.xray, k = c.crew;
+  if (s) {
+    for (const ch of s.checks) {
+      if (ch.id === 'mint' && ch.status === 'fail') flags.push(['high', 'mint open']);
+      if (ch.id === 'freeze' && ch.status === 'fail') flags.push(['high', 'freeze open']);
+    }
+    if (s.score < 50) flags.push(['medium', `score ${s.score}`]);
+  }
+  if (x) {
+    const b = x.bundle;
+    if (b && b.sameBlockWallets >= 3 && b.launchBuyersHoldNowPct >= 1) flags.push(['high', `launch bundle holds ${b.launchBuyersHoldNowPct}%`]);
+    const top = x.clusters?.[0];
+    if (top && top.holdsPct >= 20) flags.push(['high', `linked wallets ${top.holdsPct}%`]);
+    else if (top && top.holdsPct >= 10) flags.push(['medium', `linked wallets ${top.holdsPct}%`]);
+  }
+  if (k?.crew) flags.push(['medium', `known crew · ${k.crew.launches} launches`]);
+  const level = !s && !x ? (c.busy ? 'wait' : 'unknown') : flags.some((f) => f[0] === 'high') ? 'high' : flags.length ? 'medium' : 'low';
+  if (level === 'low') flags.push(['low', x ? 'no bundle or links found' : 'scan clean · not X-rayed']);
+  if (level === 'unknown') flags.push(['wait', 'could not read']);
+  return { flags, level };
+}
+
+function render() {
+  const st = state, total = st.coins.reduce((a, c) => a + c.usd, 0) || 1;
+  const by = { high: 0, medium: 0, low: 0, wait: 0, unknown: 0 };
+  for (const c of st.coins) by[c.level] += c.usd;
+  const done = st.finished;
+  const highPct = Math.round((by.high / total) * 100), medPct = Math.round((by.medium / total) * 100);
+  if (!st.coins.length) {
+    $('vv').className = 'v lvl-low'; $('vv').textContent = 'No memecoins found';
+    $('vp').textContent = 'This wallet holds no priced tokens besides SOL and stables.';
+  } else if (!done) {
+    $('vv').className = 'v lvl-wait'; $('vv').innerHTML = `<span class="spin"></span> X-raying ${st.coins.filter((c) => c.level !== 'wait').length}/${st.coins.length}…`;
+  } else {
+    const lvl = highPct >= 40 ? 'high' : highPct + medPct >= 40 || highPct >= 15 ? 'medium' : 'low';
+    $('vv').className = 'v lvl-' + lvl;
+    $('vv').textContent = { high: 'EXIT LIQUIDITY RISK: HIGH', medium: 'EXIT LIQUIDITY RISK: MEDIUM', low: 'LOOKING CLEAN' }[lvl];
+    st.verdict = { lvl, highPct, medPct };
+    $('acts').hidden = false;
+  }
+  $('vp').textContent = st.coins.length ? `${st.coins.length} coin${st.coins.length > 1 ? 's' : ''} · ${usd(total)} · ${highPct}% of the bag in high-risk coins, ${medPct}% in medium` : '';
+  $('bar').innerHTML = [['high', '#ff5e8e'], ['medium', '#ff8a1f'], ['low', '#4dff6a'], ['unknown', '#3b3580'], ['wait', '#3b3580']].map(([k, col]) => `<i style="width:${(by[k] / total) * 100}%;background:${col}"></i>`).join('');
+  $('leg').innerHTML = `<span style="--c:#ff5e8e">High ${highPct}%</span><span style="--c:#ff8a1f">Medium ${medPct}%</span><span style="--c:#4dff6a">Low ${Math.round((by.low / total) * 100)}%</span>`;
+  $('coins').innerHTML = st.coins.map((c) => `<div class="coin">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy">` : '<div class="ph">🕷️</div>'}
+    <div><div class="n">${esc(clean(c.name) || 'Unnamed token')} <span>${c.symbol ? '$' + esc(clean(c.symbol)) : esc(c.mint.slice(0, 4) + '…' + c.mint.slice(-4))}</span></div><div class="f">${c.busy ? `<span class="flag f-wait"><span class="spin"></span> ${esc(c.busy)}</span>` : c.flags.map(([l, t]) => `<span class="flag f-${l}">${esc(t)}</span>`).join('')}</div></div>
+    <div class="r"><b>${usd(c.usd)}</b><a href="scan?ca=${encodeURIComponent(c.mint)}">scan ↗</a></div></div>`).join('');
+  $('more').textContent = (st.coins.length > XRAY_MAX ? `The ${XRAY_MAX} biggest positions get a full X-ray; the rest a scan. ` : '') + (st.more ? `+${st.more} smaller coin${st.more > 1 ? 's' : ''} not shown.` : '');
+}
+
+async function run(addr) {
+  addr = addr.trim();
+  $('err').style.display = 'none';
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) { $('err').textContent = 'That does not look like a Solana wallet address.'; $('err').style.display = 'block'; return; }
+  $('go').disabled = true;
+  history.replaceState(null, '', '?w=' + addr);
+  try {
+    const w = await get('/v1/wallet/' + encodeURIComponent(addr));
+    state = { wallet: w.wallet, more: w.more, coins: w.coins.map((c) => ({ ...c, level: 'wait', flags: [], busy: 'queued' })) };
+    $('out').style.display = 'block'; $('acts').hidden = true; state.finished = false; render();
+    // Scans first (quick), then X-rays for the biggest positions, one at a time.
+    await Promise.all(state.coins.map(async (c) => { c.busy = 'scanning'; render(); c.scan = await get('/v1/scan/' + c.mint).catch(() => null); c.busy = null; Object.assign(c, judge(c)); render(); }));
+    // Coins past the X-ray limit keep their scan verdict.
+    for (const c of state.coins.slice(0, XRAY_MAX)) {
+      c.busy = 'X-raying'; render();
+      c.xray = await get('/v1/xray/' + c.mint).catch(() => null);
+      c.crew = c.xray ? await get('/v1/crew/' + c.mint).catch(() => null) : null;
+      c.busy = null; Object.assign(c, judge(c)); render();
+    }
+    state.finished = true; render();
+  } catch (e) { $('err').textContent = e.message; $('err').style.display = 'block'; }
+  finally { $('go').disabled = false; }
+}
+
+$('share').onclick = () => {
+  const v = state.verdict, n = state.coins.length;
+  const line = { high: 'EXIT LIQUIDITY RISK: HIGH 🚨', medium: 'EXIT LIQUIDITY RISK: MEDIUM ⚠️', low: 'LOOKING CLEAN ✅' }[v.lvl];
+  window.open('https://x.com/intent/post?text=' + encodeURIComponent(`I let the @gemsearchfun spider X-ray my bag 🕷️\n\n${line}\n${v.highPct}% of my bag sits in high-risk coins across ${n} coin${n > 1 ? 's' : ''}\n\nam I exit liquidity? check yours:\ngemsearch.fun/me`), '_blank', 'noopener');
+};
+
+$('card').onclick = () => {
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 675;
+  const g = c.getContext('2d'), v = state.verdict;
+  const bg = g.createRadialGradient(600, 100, 50, 600, 300, 800); bg.addColorStop(0, '#2b1170'); bg.addColorStop(.55, '#120a3a'); bg.addColorStop(1, '#06041a');
+  g.fillStyle = bg; g.fillRect(0, 0, 1200, 675);
+  const rb = g.createLinearGradient(0, 0, 1200, 0); ['#ff2e7e', '#ff8a1f', '#ffe81f', '#4dff6a', '#1fd2ff', '#5b6bff', '#b84dff'].forEach((col, i) => rb.addColorStop(i / 6, col));
+  g.fillStyle = rb; g.fillRect(0, 0, 1200, 8); g.fillRect(0, 667, 1200, 8);
+  g.textAlign = 'center';
+  g.fillStyle = '#9fe9ff'; g.font = '600 24px Menlo, monospace'; g.fillText('AM I EXIT LIQUIDITY?  ·  GEM SEARCH', 600, 80);
+  g.fillStyle = { high: '#ff5e8e', medium: '#ff8a1f', low: '#4dff6a' }[v.lvl]; g.font = '800 72px Arial, sans-serif';
+  g.fillText({ high: 'EXIT LIQUIDITY RISK: HIGH', medium: 'EXIT LIQUIDITY RISK: MEDIUM', low: 'LOOKING CLEAN' }[v.lvl], 600, 190);
+  g.fillStyle = '#e9e5ff'; g.font = '600 32px Arial, sans-serif';
+  g.fillText(`${v.highPct}% of the bag in high-risk coins · ${v.medPct}% medium`, 600, 250);
+  const total = state.coins.reduce((a, x) => a + x.usd, 0) || 1; let x0 = 150;
+  for (const [k, col] of [['high', '#ff5e8e'], ['medium', '#ff8a1f'], ['low', '#4dff6a']]) { const w = 900 * state.coins.filter((q) => q.level === k).reduce((a, q) => a + q.usd, 0) / total; g.fillStyle = col; g.fillRect(x0, 290, w, 22); x0 += w; }
+  g.textAlign = 'left'; g.font = '600 26px Arial, sans-serif';
+  state.coins.slice(0, 6).forEach((q, i) => {
+    const y = 380 + i * 42;
+    g.fillStyle = { high: '#ff5e8e', medium: '#ff8a1f', low: '#4dff6a', wait: '#7d78a8', unknown: '#7d78a8' }[q.level]; g.beginPath(); g.arc(170, y - 9, 9, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffffff'; g.fillText('$' + String(clean(q.symbol) || '?').slice(0, 14), 195, y);
+    g.fillStyle = '#b9b3e0'; g.font = '22px Arial, sans-serif'; g.fillText((q.flags[0]?.[1] ?? '').slice(0, 46), 430, y); g.font = '600 26px Arial, sans-serif';
+  });
+  g.textAlign = 'right'; g.fillStyle = '#ffffff'; g.font = '700 24px Menlo, monospace'; g.fillText('gemsearch.fun/me', 1140, 640);
+  c.toBlob((b) => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'am-i-exit-liquidity.png'; a.click(); });
+};
+
+$('f').addEventListener('submit', (e) => { e.preventDefault(); run($('w').value); });
+const q = new URLSearchParams(location.search).get('w');
+if (q) { $('w').value = q; run(q); }
+</script>
+</body>
+</html>
