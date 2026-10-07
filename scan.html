@@ -113,6 +113,14 @@ h2{font-size:18px;margin:0 0 12px}
 .cl .t{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .cl .dot{width:12px;height:12px;border-radius:50%;flex:none}
 .cl small{display:block;color:var(--muted);font-size:13px;margin-top:4px}
+.crewbox{margin-top:18px;padding:18px;border-radius:16px;border:1px solid var(--line);background:#0a0822}
+.crewbox.hit{border-color:rgba(255,94,142,.6);background:rgba(255,94,142,.06)}
+.crewbox h3{margin:0 0 6px;font-size:18px}.crewbox p{margin:0 0 10px;color:var(--muted);font-size:15px}
+.crewstats{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.crewstats div{flex:1;min-width:130px;padding:10px 12px;border-radius:12px;background:#120e33;border:1px solid #241f58}
+.crewstats small{display:block;color:var(--dim);font-size:12px}.crewstats b{font-size:20px}
+.crewrow{display:grid;grid-template-columns:1fr auto auto;gap:12px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06);font-size:14px;text-decoration:none}
+.crewrow span:nth-child(2),.crewrow span:nth-child(3){font-family:"JetBrains Mono",monospace;color:var(--muted)}
 .xload{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;height:100%;color:var(--muted);font-size:15px;text-align:center;padding:20px}
 footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px}
 footer p{margin:0 0 8px;max-width:820px}
@@ -165,6 +173,7 @@ footer p{margin:0 0 8px;max-width:820px}
         <div class="legend"><span><i style="background:#ff5ea8"></i>dev</span><span><i style="background:#ff8a1f"></i>bought in the launch block</span><span><i style="background:#ffe81f"></i>bought in the first seconds</span><span><i style="background:#b48cff"></i>holder</span><span><i style="background:#1fd2ff"></i>shared funder</span></div></div>
       <div id="xside"></div>
     </div>
+    <div id="crew"></div>
     <div class="note">Wallets are linked when one funded the other, when one wallet funded several of them, when they passed this coin between each other, or when they bought in the same block as the launch. Exchange hot wallets never count as a shared funder. Every link opens its transaction.</div>
   </section>
 </main>
@@ -289,6 +298,7 @@ async function runXray(r) {
     if (!res.ok) throw new Error(x.error || 'the X-ray did not answer');
     if (last?.mint !== r.mint) return;
     drawXray(x, r);
+    loadCrew(r.mint);
   } catch (e) { $('xload').innerHTML = '🕸️<br>' + esc(e.message) + '<br><button class="btn ghost" type="button" id="xretry" style="margin-top:8px">Try again</button>'; $('xretry').onclick = () => runXray(r); }
 }
 function drawXray(x, r) {
@@ -392,6 +402,28 @@ function drawXray(x, r) {
   $('xside').querySelectorAll('.cl').forEach((el) => { el.addEventListener('mouseenter', () => focus(Number(el.dataset.ci))); el.addEventListener('mouseleave', () => focus(null)); });
   const top = clusters[0];
   $('xshare').onclick = () => window.open('https://x.com/intent/post?text=' + encodeURIComponent(`🕸️ Web X-ray of ${r.symbol ? '$' + r.symbol : 'this coin'} by @gemsearchfun\n\n${b ? `Launch block: ${b.sameBlockWallets} wallet${b.sameBlockWallets === 1 ? '' : 's'}, ${b.sameBlockBoughtPct}% bought, ${b.launchBuyersHoldNowPct}% still held\n` : ''}${top ? `Biggest linked cluster: ${top.size} wallets holding ${top.holdsPct}%\n` : 'No linked wallets among the top holders\n'}\ngemsearch.fun/scan?ca=${r.mint}`), '_blank', 'noopener');
+}
+
+// ---- Bundle Crew: the spider's memory across launches ------------------------------------------------------------
+const day = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+async function loadCrew(mint) {
+  const box = $('crew');
+  box.innerHTML = '';
+  try {
+    const c = await (await fetch(API + '/v1/crew/' + encodeURIComponent(mint))).json();
+    if (last?.mint !== mint || c.error) return;
+    const since = c.since ? day(c.since) : 'today';
+    if (!c.crew) {
+      box.innerHTML = `<div class="crewbox"><h3>🧠 Bundle Crew: no known crew</h3><p>The spider has not seen these wallets or the wallets that funded them in any other launch it recorded since ${since}. Its memory grows with every launch.</p></div>`;
+      return;
+    }
+    const k = c.crew, pend = k.launches - k.judged;
+    box.innerHTML = `<div class="crewbox hit"><h3>🧠 Bundle Crew: seen before</h3>
+      <p><b>${k.walletsHere}</b> wallet${k.walletsHere === 1 ? '' : 's'} here ${k.walletsHere === 1 ? 'shares' : 'share'} funders with wallets the spider met in <b>${k.launches}</b> other launch${k.launches === 1 ? '' : 'es'} since ${since}.</p>
+      <div class="crewstats"><div><small>Other launches</small><b>${k.launches}</b></div><div><small>Went nowhere in 1h (&lt;$10K)</small><b>${k.under10kAt1h}</b></div><div><small>Took off in 1h (&gt;$50K)</small><b>${k.over50kAt1h}</b></div><div><small>Not checked yet</small><b>${pend}</b></div></div>
+      ${k.history.map((h) => `<a class="crewrow" href="?ca=${encodeURIComponent(h.mint)}"><span>${esc(h.name || 'unnamed')} <span class="mono" style="color:var(--cyan)">$${esc(h.symbol)}</span></span><span>${day(h.t)}</span><span>${h.mc1h == null ? 'pending' : '1h ' + money(h.mc1h)}</span></a>`).join('')}
+      <p style="margin-top:10px;font-size:13px">A crew is a funding pattern on chain: wallets topped up from the same sources. It is not a proven identity.</p></div>`;
+  } catch {}
 }
 
 $('f').addEventListener('submit', (e) => { e.preventDefault(); run($('ca').value); });
