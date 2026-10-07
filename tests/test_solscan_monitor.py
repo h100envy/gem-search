@@ -37,6 +37,32 @@ class SolscanTests(unittest.TestCase):
         self.assertIn('Free Solscan access connected', monitor.error)
         alerts.evaluate.assert_not_called()
 
+    def test_free_access_limits_batch_and_rotates(self):
+        client = Mock(key='fake-key', free_access=True)
+        client.get.side_effect = [SolscanAccessError(403, 'Discovery unavailable'), {'address': ADDRESS, 'decimals': 9}]
+        observer = Mock()
+        tracked = [{'chain': 'solana', 'address': ADDRESS}, {'chain': 'solana', 'address': 'another-token'}]
+        monitor = SolscanMonitor(Mock(), observer, tracked=lambda: tracked, client=client)
+        monitor.control(True)
+        with patch('solscan_monitor.solana_supplies', return_value={}):
+            monitor.poll()
+        self.assertEqual(client.get.call_count, 2)
+        self.assertEqual(monitor.offset, 1)
+        self.assertEqual(observer.call_count, 1)
+
+    def test_rate_limit_retries_same_token_without_discarding_discovery(self):
+        client = Mock(key='fake-key', free_access=False)
+        client.get.side_effect = [[{'address': ADDRESS, 'decimals': 9, 'market_cap': 45000}], SolscanAccessError(429, 'Rate limited')]
+        observer = Mock()
+        monitor = SolscanMonitor(Mock(), observer, tracked=lambda: [{'chain': 'solana', 'address': ADDRESS}], client=client)
+        monitor.control(True)
+        with patch('solscan_monitor.solana_supplies', return_value={}):
+            monitor.poll()
+        self.assertEqual(observer.call_count, 1)
+        self.assertEqual(observer.call_args.args[2]['market_cap_usd'], 45000)
+        self.assertEqual(monitor.offset, 0)
+        self.assertEqual(monitor.error, 'Rate limited')
+
     def test_only_solscan_endpoint_with_header_credential(self):
         response = Mock()
         response.read.return_value = json.dumps({'success': True, 'data': []}).encode()

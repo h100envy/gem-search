@@ -128,20 +128,41 @@ class SolscanMonitor:
             records = {item['address']: item for item in latest if isinstance(item, dict) and isinstance(item.get('address'), str)}
             watched = [address for chain, address in (self.watchlist() if self.watchlist else []) if chain == 'solana']
             tracked = [item['address'] for item in (self.tracked() if self.tracked else []) if item.get('chain') == 'solana']
-            extra = list(dict.fromkeys(watched + tracked[self.offset:self.offset + 20]))
-            self.offset = (self.offset + 20) % max(1, len(tracked))
+            ordered = list(dict.fromkeys(watched or tracked))
+            if ordered:
+                self.offset %= len(ordered)
+            extra = (ordered[self.offset:] + ordered[:self.offset])[:20]
+            attempted = 0
             for address in extra:
                 if not self.active(generation):
                     return
-                item = client.get('token/meta', address=address)
+                if client.free_access is True and attempted >= 1:
+                    break
+                attempted += 1
+                try:
+                    item = client.get('token/meta', address=address)
+                except SolscanAccessError as error:
+                    if error.code in (401, 403):
+                        raise
+                    self.error = str(error)
+                    if error.code == 429:
+                        attempted -= 1
+                        break
+                    continue
+                except (ValueError, TimeoutError, OSError):
+                    self.error = 'Some Solscan token requests failed; successful results retained'
+                    continue
                 if not isinstance(item, dict) or item.get('address') != address:
-                    raise ValueError('Solscan metadata address mismatch')
+                    self.error = 'Solscan metadata address mismatch; token skipped'
+                    continue
                 records[address] = item
+            self.offset = (self.offset + attempted) % max(1, len(ordered))
             if not records:
-                self.error = 'Add a Solana token address in Settings; discovery is unavailable on this access tier'
+                if not ordered:
+                    self.error = 'Add a Solana token address in Settings; discovery is unavailable on this access tier'
                 return
-            if client.free_access is True:
-                self.error = 'Free Solscan access connected; saved and watched tokens refresh, automatic discovery unavailable'
+            if client.free_access is True and (not self.error or 'Discovery access unavailable' in self.error):
+                self.error = 'Free Solscan access connected; one token refresh per minute, watchlist prioritized, discovery unavailable'
             if not self.active(generation):
                 return
             samples = {}

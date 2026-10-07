@@ -17,3 +17,5 @@ The dark desktop has Google blue, red, yellow and green accents, fitted table pa
 Build from source using requirements-desktop.txt and scripts/build_desktop.py. Run desktop.py --smoke-test PATH or --responsiveness-test PATH with a fresh --data-dir to test the local desktop workflow without network requests.
 
 Free API credentials are supported through Solscan documented playground/token/meta. When Pro discovery access is rejected, the app refreshes saved and watched Solana tokens through this free endpoint. It does not invent free discovery coverage. Add token addresses in Settings. Other providers remain excluded.
+
+The documented free metadata route has stricter observed request limits than the plan card suggests. Free mode conservatively refreshes one token per minute, rotating through the watchlist when present or saved Solana tokens otherwise. Successful responses survive later failures. Rate-limited tokens retry next minute. Samples can become stale; there is no claim of continuous full-market coverage.
