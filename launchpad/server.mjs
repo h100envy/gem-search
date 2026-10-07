@@ -13,6 +13,7 @@ import { createCouncil, factsOf } from './council.mjs';
 import { checkVerdicts, initRecord, recordVerdict, trackRecord } from './record.mjs';
 import { xrayToken } from './xray.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
+import { burnStats } from './burns.mjs';
 
 /**
  * gemsearch.fun's launchpad API. The page makes the coin's mint key and the creator's wallet signs; this server only
@@ -428,6 +429,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname.startsWith('/v1/wallet/')) return send(200, await wallet(req, decodeURIComponent(url.pathname.slice(11)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/crew/')) return send(200, crew(decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname === '/v1/index') return send(200, await bundleIndex());
+    if (req.method === 'GET' && url.pathname === '/v1/burns') return send(200, await burnStats(conn, RPC, url.searchParams.get('owner')));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/xray/')) return send(200, await xray(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/scan/')) return send(200, await scan(req, decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'POST' && url.pathname === '/v1/prepare') return send(200, await prepare(req, await readJson(req, 3_000_000)));
