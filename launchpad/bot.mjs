@@ -2,6 +2,7 @@ import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { createRadar, TRACK_MAX } from './bot/radar.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 import { createCouncil, factsOf, SEATS } from './council.mjs';
+import { initRecord, recordVerdict } from './record.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -415,7 +416,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
 
   const send = (chatId, text, extra = {}) => tg('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true }, ...extra });
   // Shill Radar: team-only, switched on per chat with a code from the server's environment; not in the public menu.
-  const radar = radarConfig?.bearer ? createRadar({ ...radarConfig, dataDir, send, log }) : null;
+  const radar = radarConfig?.bearer ? createRadar({ ...radarConfig, dataDir, send, log, onCA: (chatId, mint, handle) => sentinel(chatId, mint, handle) }) : null;
   async function onRadar(chatId, arg) {
     if (!radar) return send(chatId, '🕷️ The radar is not set up on this server.');
     const [word, code] = String(arg ?? '').trim().split(/\s+/);
@@ -539,6 +540,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     try {
       const { s, facts } = await councilFactsFor(mint);
       const d = await council.convene(facts);
+      try { initRecord(crewDb); recordVerdict(crewDb, d, facts, 'bot'); } catch {}
       const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[\[(\d+)\]\]\([^)]+\)/g, '');
       const head = `🤖 <b>Grok Council</b> on ${esc(s.name ?? '')} ${s.symbol ? '<b>$' + esc(s.symbol) + '</b>' : ''}\n\n🔭 <b>What X says</b>\n${md(d.x.summary || 'almost nothing yet').slice(0, 900)}`;
       const talk = d.turns.map((t) => `${SEATS[t.seat]?.emoji ?? '🕷️'} <b>${SEATS[t.seat]?.name ?? t.seat}:</b> ${md(t.text)}`).join('\n\n');
@@ -550,6 +552,26 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     } catch (e) {
       await edit(chatId, msg.message_id, errorText(e)).catch(() => {});
     }
+  }
+
+  // Council sentinel: when a tracked account drops a contract address, the council convenes by itself, a few times a
+  // day per chat, and posts a short verdict under the tracked post.
+  const SENTINEL_PER_DAY = Number(process.env.SENTINEL_PER_DAY ?? 6);
+  const sentinelDone = new Map();
+  async function sentinel(chatId, mint, handle) {
+    if (!council) return;
+    const day = new Date().toISOString().slice(0, 10), key = `${chatId}:${day}`;
+    const n = sentinelDone.get(key) ?? 0;
+    if (n >= SENTINEL_PER_DAY) return;
+    sentinelDone.set(key, n + 1);
+    try {
+      const { s, facts } = await councilFactsFor(mint);
+      const d = await council.convene(facts);
+      try { initRecord(crewDb); recordVerdict(crewDb, d, facts, 'sentinel'); } catch {}
+      const skeptic = d.turns.find((t) => t.seat === 'skeptic')?.text ?? '';
+      const votes = d.votes.map((v) => `${SEATS[v.seat]?.emoji ?? ''}${v.vote}`).join(' ');
+      await send(chatId, `🤖 <b>Council on @${esc(handle)}'s call</b> ${s.symbol ? '<b>$' + esc(s.symbol) + '</b>' : ''}\n\n🧐 <b>Skeptic:</b> ${esc(skeptic)}\n\n🏛 <b>Verdict: ${d.verdict}</b> · ${votes}\n<i>${esc(d.summary)}</i>\n\n<i>Auto-council ${n + 1}/${SENTINEL_PER_DAY} today. Not financial advice.</i>`, { reply_markup: { inline_keyboard: [[{ text: '🔎 Full scan + debate', url: `${SITE}/scan?ca=${mint}` }, { text: '🔥 Roast', callback_data: `r:${mint}` }]] } });
+    } catch (e) { log.error('[sentinel]', clean(e)); }
   }
 
   async function addWatch(chatId, mint) {
@@ -694,7 +716,14 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     const mentioned = me && (text.toLowerCase().includes(`@${me.username.toLowerCase()}`) || m.reply_to_message?.from?.id === me.id);
     if (!priv && !mentioned) return;
     const mint = extractCA(text) ?? (priv ? null : replyCA());
-    if (mint) return runScan(chatId, userId, mint, m.message_id);
+    if (mint) {
+      // "@gemsearchfunbot council" / "roast" / "xray" in reply to a message with an address, or with the address.
+      const words = text.toLowerCase();
+      if (/\bcouncil\b|\bdebate\b/.test(words)) return runCouncil(chatId, userId, mint, m.message_id);
+      if (/\broast\b/.test(words)) return runRoast(chatId, userId, mint, m.message_id);
+      if (/x-?ray\b/.test(words)) return runXray(chatId, userId, mint, m.message_id);
+      return runScan(chatId, userId, mint, m.message_id);
+    }
     if (priv) return send(chatId, '🕷️ Send me a Solana contract address and I will scan it. /help for everything else.');
   }
 
@@ -705,6 +734,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     if (kind === 'x') {
       await tg('answerCallbackQuery', { callback_query_id: q.id, text: 'X-raying…' }).catch(() => {});
       return runXray(chatId, q.from.id, mint, q.message.message_id);
+    }
+    if (kind === 'r') {
+      await tg('answerCallbackQuery', { callback_query_id: q.id, text: 'Heating the grill…' }).catch(() => {});
+      return runRoast(chatId, q.from.id, mint, q.message.message_id);
     }
     if (kind === 'c') {
       await tg('answerCallbackQuery', { callback_query_id: q.id, text: 'Convening the council…' }).catch(() => {});

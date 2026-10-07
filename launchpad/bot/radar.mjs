@@ -60,7 +60,7 @@ export function formatTracked(post, user, now = Date.now()) {
 export const TRACK_MAX = 5; // accounts per chat
 const TRACK_TOTAL = 300; // accounts across all chats
 
-export function createRadar({ bearer, dataDir = '/data', send, log = console, intervalMs = 180_000, budgetUsd = 9, minFollowers = 1000, maxAgeMin = 30, maxReplies = 150 }) {
+export function createRadar({ bearer, dataDir = '/data', send, onCA = null, log = console, intervalMs = 180_000, budgetUsd = 9, minFollowers = 1000, maxAgeMin = 30, maxReplies = 150 }) {
   const path = join(dataDir, 'radar.json');
   let state = { chats: [], sinceId: null, spentUsd: 0, reads: 0, users: 0, hits: 0, stopped: false, seen: [], tracks: {}, trackFrom: null, tracked: 0 };
   let timer = null;
@@ -104,7 +104,11 @@ export function createRadar({ bearer, dataDir = '/data', send, log = console, in
         if (!u || seen.has(p.id)) continue;
         seen.add(p.id); state.seen.push(p.id);
         const alert = formatTracked(p, u);
-        for (const c of trackChats()) if (state.tracks[c].includes(u.username.toLowerCase())) await send(c, alert.text, { reply_markup: alert.keyboard, link_preview_options: { is_disabled: true } }).catch((e) => log.error('[track] send', e.message));
+        const ca = findCA(p.text);
+        for (const c of trackChats()) if (state.tracks[c].includes(u.username.toLowerCase())) {
+          await send(c, alert.text, { reply_markup: alert.keyboard, link_preview_options: { is_disabled: true } }).catch((e) => log.error('[track] send', e.message));
+          if (ca && onCA) onCA(c, ca, u.username);
+        }
       }
     }
     state.trackFrom = started;
