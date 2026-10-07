@@ -6,6 +6,7 @@ import bs58 from 'bs58';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
 import { scanToken } from './scan.mjs';
+import { walletHoldings } from './wallet.mjs';
 import { xrayToken } from './xray.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 
@@ -184,7 +185,7 @@ async function xray(req, mint) {
   const hit = xrays.get(mint);
   if (hit?.value && Date.now() - hit.at < 300_000) return hit.value;
   if (hit?.pending) return hit.pending;
-  limit(`xray:${req.ip}`, 6, 60_000, 'too many X-rays from here; wait a minute');
+  limit(`xray:${req.ip}`, 10, 60_000, 'too many X-rays from here; wait a minute');
   limit('xray:all', 120, 3_600_000, 'the X-ray is busy; try again in a few minutes');
   const pending = xrayToken(conn, RPC, mint);
   xrays.set(mint, { pending });
@@ -226,6 +227,19 @@ function crew(mint) {
   if (!x) return { since, known: false, needsXray: true };
   const { wallets, funders } = linksFromXray(x);
   return { since, known: true, source: 'xray', crew: crewFromLinks(crewDb, mint, wallets, funders) };
+}
+
+// --- Am I exit liquidity: a wallet's coins, valued; the page scans and X-rays each ------------------------------------
+const wallets = new Map();
+async function wallet(req, address) {
+  if (!conn) throw new LaunchError(503, 'not switched on yet');
+  const hit = wallets.get(address);
+  if (hit && Date.now() - hit.at < 120_000) return hit.value;
+  limit(`wallet:${req.ip}`, 6, 60_000, 'too many wallet checks from here; wait a minute');
+  const value = await walletHoldings(conn, address);
+  wallets.set(address, { at: Date.now(), value });
+  if (wallets.size > 500) wallets.delete(wallets.keys().next().value);
+  return value;
 }
 
 async function status(signature) {
@@ -278,6 +292,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/wallet/')) return send(200, await wallet(req, decodeURIComponent(url.pathname.slice(11)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/crew/')) return send(200, crew(decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname === '/v1/index') return send(200, await bundleIndex());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/xray/')) return send(200, await xray(req, decodeURIComponent(url.pathname.slice(9)).trim()));
