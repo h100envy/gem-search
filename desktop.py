@@ -105,7 +105,7 @@ class KOLWalletPage(QWidget):
         self.imported = []
         self.page = 0
         box = QVBoxLayout(self)
-        self.notice = QLabel('50 saved wallets · Kolscan · ' + CAPTURED + '\nDirectory snapshot. Live wallet trade tracking is unavailable.')
+        self.notice = QLabel('50 saved wallets · ' + CAPTURED + '\nDirectory snapshot. Live wallet trade tracking is unavailable.')
         self.notice.setWordWrap(True)
         box.addWidget(self.notice)
         self.search = QLineEdit()
@@ -128,7 +128,7 @@ class KOLWalletPage(QWidget):
         self.table.doubleClicked.connect(lambda index: self.open_wallet('https://solscan.io/account/'))
         box.addWidget(self.table, 1)
         actions = QHBoxLayout()
-        for label, callback in [('Copy wallet', self.copy_wallet), ('Solscan', lambda: self.open_wallet('https://solscan.io/account/')), ('Kolscan', lambda: self.open_wallet('https://kolscan.io/account/')), ('Import list', self.import_list), ('Current leaderboard', lambda: QDesktopServices.openUrl(QUrl(SOURCE)))]:
+        for label, callback in [('Copy wallet', self.copy_wallet), ('Explorer', lambda: self.open_wallet('https://solscan.io/account/')), ('Wallet profile', lambda: self.open_wallet('https://kolscan.io/account/')), ('Import list', self.import_list), ('Current leaderboard', lambda: QDesktopServices.openUrl(QUrl(SOURCE)))]:
             button = QPushButton(label)
             if label == 'Import list':
                 button.setObjectName('orange')
@@ -162,7 +162,7 @@ class KOLWalletPage(QWidget):
         size = max(1, (self.table.viewport().height() - 4) // 40)
         pages = max(1, (len(rows) + size - 1) // size)
         self.page = min(self.page, pages - 1)
-        self.table.model().replace(rows[self.page * size:(self.page + 1) * size], lambda row: [row['name'], row['address'], row['source'], row['captured']])
+        self.table.model().replace(rows[self.page * size:(self.page + 1) * size], lambda row: [row['name'], row['address'], 'Imported' if row['source'] == 'Imported list' else 'Saved', row['captured']])
         self.count.setText(str(len(rows)) + ' matching wallets / ' + str(len(wallets)) + ' saved · Page ' + str(self.page + 1) + ' of ' + str(pages))
         self.previous.setEnabled(self.page > 0)
         self.following.setEnabled(self.page + 1 < pages)
@@ -274,7 +274,7 @@ class DesktopWindow(QMainWindow):
         self.navigation = QListWidget()
         self.navigation.setObjectName('navigation')
         rail.addWidget(self.navigation, 1)
-        rail.addWidget(QLabel('Solana · Solscan'))
+        rail.addWidget(QLabel('Solana'))
         body.addWidget(sidebar)
         workspace = QWidget()
         layout = QVBoxLayout(workspace)
@@ -313,7 +313,7 @@ class DesktopWindow(QMainWindow):
                 self.connection_notice = QLabel()
                 self.connection_notice.setWordWrap(True)
                 box.addWidget(self.connection_notice)
-                self.connection_button = QPushButton('Connect Solscan')
+                self.connection_button = QPushButton('Connect data')
                 self.connection_button.clicked.connect(self.open_connection)
                 box.addWidget(self.connection_button)
                 box.addWidget(self.search)
@@ -350,7 +350,7 @@ class DesktopWindow(QMainWindow):
                 market = QPushButton('Open token')
                 market.clicked.connect(lambda checked=False, target=table: self.open_market(target))
                 actions.addWidget(market)
-                explorer = QPushButton('Solscan')
+                explorer = QPushButton('Explorer')
                 explorer.clicked.connect(lambda checked=False, target=table: self.open_explorer(target))
                 actions.addWidget(explorer)
             actions.addStretch()
@@ -372,11 +372,11 @@ class DesktopWindow(QMainWindow):
         feed_page = QWidget()
         feed_box = QVBoxLayout(feed_page)
         feed_box.setSpacing(16)
-        self.cielo_status = QLabel('Use your Cielo account feed and alert settings in your browser without an API key. In-app API requests need a separate Cielo API key.')
+        self.cielo_status = QLabel('Open your account activity and alert settings in your browser. In-app requests require a separate activity API key.')
         self.cielo_status.setWordWrap(True)
         feed_box.addWidget(self.cielo_status)
         feed_actions = QHBoxLayout()
-        self.cielo_feed_button = QPushButton('Load my Cielo feed')
+        self.cielo_feed_button = QPushButton('Load activity')
         self.cielo_feed_button.setObjectName('primary')
         self.cielo_feed_button.clicked.connect(lambda: self.load_cielo_feed())
         feed_actions.addWidget(self.cielo_feed_button)
@@ -391,44 +391,44 @@ class DesktopWindow(QMainWindow):
         feed_box.addLayout(feed_actions)
         self.cielo_output = QPlainTextEdit()
         self.cielo_output.setReadOnly(True)
-        self.cielo_output.setPlaceholderText('Your Cielo feed will appear here after a successful API request. Response format will be validated with your account before trade parsing is enabled.')
+        self.cielo_output.setPlaceholderText('Your activity response will appear here after a successful request. Live trade parsing remains under development.')
         feed_box.addWidget(self.cielo_output, 1)
         self.cielo_signals = StoreSignals(self)
         self.cielo_signals.snapshot.connect(self.accept_cielo_feed, Qt.ConnectionType.QueuedConnection)
         self.cielo_signals.error.connect(self.cielo_feed_error, Qt.ConnectionType.QueuedConnection)
         self.cielo_busy = False
-        self.cielo_tab = self.tabs.addTab(feed_page, 'Cielo feed')
+        self.cielo_tab = self.tabs.addTab(feed_page, 'Wallet activity')
         settings_page = QWidget()
         settings = QVBoxLayout(settings_page)
         settings.setSpacing(18)
-        settings.addWidget(QLabel('CIELO CONNECTION\nWallet activity comes from Cielo. Enter the key from build.cielo.finance locally.'))
+        settings.addWidget(QLabel('ACTIVITY CONNECTION\nEnter your activity API key locally. API access is separate from your web account.'))
         self.cielo_key = QLineEdit()
         self.cielo_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.cielo_key.setPlaceholderText('Enter your Cielo API key locally')
+        self.cielo_key.setPlaceholderText('Enter your activity API key locally')
         settings.addWidget(self.cielo_key)
-        cielo_save = QPushButton('Save Cielo connection')
+        cielo_save = QPushButton('Save activity connection')
         cielo_save.clicked.connect(self.connect_cielo)
         settings.addWidget(cielo_save)
-        cielo_login = QPushButton('Open Cielo API portal')
+        cielo_login = QPushButton('Open activity API portal')
         cielo_login.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('https://build.cielo.finance')))
         settings.addWidget(cielo_login)
-        self.cielo_connection = QLabel('Cielo key saved locally' if load_key(store.directory, 'cielo') else 'Cielo key not configured')
+        self.cielo_connection = QLabel('Activity key saved locally' if load_key(store.directory, 'cielo') else 'Activity key not configured')
         settings.addWidget(self.cielo_connection)
-        self.solscan_connection = QLabel('Solscan key saved locally' if self.monitor.client.key else 'Solscan key not configured')
+        self.solscan_connection = QLabel('Token key saved locally' if self.monitor.client.key else 'Token key not configured')
         settings.addWidget(self.solscan_connection)
-        settings.addWidget(QLabel('SOLSCAN CONNECTION\nAll token data comes from Solscan. Direct blockchain reads verify mint identity and decimals.\nSolscan price and market cap remain provider data, not independently verified prices.'))
+        settings.addWidget(QLabel('TOKEN CONNECTION\nEnter your token data key locally. Market values are reported values, not independently verified USD valuations.'))
         self.solscan_key = QLineEdit()
         self.solscan_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.solscan_key.setPlaceholderText('Enter your Solscan API key locally')
+        self.solscan_key.setPlaceholderText('Enter your token API key locally')
         settings.addWidget(self.solscan_key)
-        connect = QPushButton('Save Solscan connection')
+        connect = QPushButton('Save token connection')
         connect.clicked.connect(self.connect_solscan)
         settings.addWidget(connect)
         settings.addWidget(QLabel('Monitoring duration'))
         settings.addWidget(self.duration)
         settings.addWidget(keep_on_top)
         settings.addWidget(self.minimize_outside)
-        settings.addWidget(QLabel('ALERT RULES\nNet swap inflow: buys minus sells exceed $100,000 over five minutes.\nMarket cap: $40,000 before token age five minutes requires a token creation source.'))
+        settings.addWidget(QLabel('NOTIFICATIONS\nReview triggered events in the alerts area. Complete live alert coverage is still under development.'))
         self.notifications = QCheckBox('Show notifications on this computer')
         self.notifications.setChecked(store.get('notifications', True))
         self.notifications.toggled.connect(lambda value: self.save_setting('notifications', value))
@@ -447,7 +447,7 @@ class DesktopWindow(QMainWindow):
         add = QPushButton('Add token to watchlist')
         add.clicked.connect(self.add_watch)
         settings.addWidget(add)
-        settings.addWidget(QLabel('COVERAGE\nSolana only. Discovery samples the latest 20 Solscan tokens per minute.\nExisting watchlists and alert history are retained. Legacy provider tokens are hidden from live results.\nThe $40k rule uses Solscan token creation time and market cap after mint verification.\nNet inflow alerts are pending validation of Solscan swap direction and historical USD amounts.\nNo other provider is used as a fallback. API endpoint access depends on your Solscan plan.'))
+        settings.addWidget(QLabel('COVERAGE\nSolana only. Live coverage depends on your connection access. Some activity and alert features remain unavailable.'))
         settings.addWidget(QLabel('Closing this window keeps monitoring in the system tray. Quit stops monitoring.\nUntil I stop and timed deadlines are retained when the app is reopened.\nMonitoring cannot run while your computer is asleep or powered off.'))
         settings.addWidget(QLabel('Local data: ' + str(store.directory)))
         settings.addStretch()
@@ -576,16 +576,16 @@ class DesktopWindow(QMainWindow):
 
     def refresh(self):
         state = self.monitor.status()
-        self.status_label.setText(('Monitoring' if state['enabled'] else 'Paused') + (' · ' + state['error'] if state['error'] else ' · Solscan token refresh') + (' · ' + state.get('valuation_error', '') if state.get('valuation_error') else ''))
+        self.status_label.setText(('Monitoring' if state['enabled'] else 'Paused') + (' · Connection needs attention. See Settings.' if state['error'] else ' · Token refresh') + (' · Valuation unavailable' if state.get('valuation_error') else ''))
         self.status_label.setToolTip(str(state['checked']) + ' flow samples checked. ' + str(state['skipped']) + ' inflow samples pending validation. KOL trade monitoring remains unavailable.')
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
         tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'Solscan']
         connected = bool(self.monitor.client.key)
-        self.connection_notice.setText('Solscan connection required. Your saved tokens remain available under Saved tokens. Enter your own Solscan API key in Settings to enable live monitoring.' if not connected else 'Waiting for the first Solscan response.' if not tokens else '')
+        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'Waiting for the first token response.' if not tokens else '')
         self.connection_notice.setVisible(not connected or not tokens)
         self.connection_button.setVisible(not connected)
-        self.control_buttons['primary'].setText('Start monitoring' if connected else 'Connect Solscan')
+        self.control_buttons['primary'].setText('Start monitoring' if connected else 'Connect data')
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
@@ -595,12 +595,12 @@ class DesktopWindow(QMainWindow):
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
         self.fill_table(self.tables['Saved tokens'], snapshot['tokens'], lambda r: [r['name'], r['chain'].upper(), r.get('market_cap_source', 'Unknown historical source'), money(r.get('market_cap_usd')), money(r.get('price_usd')), stamp(r.get('market_cap_updated_at'))])
         alerts = snapshot['alerts']
-        self.fill_table(self.tables['Triggered alerts'], alerts, lambda r: [stamp(r['captured_at']), r['chain'], r['address'], 'Net inflow > $100k / 5m' if r['rule'] == 'net_inflow_100k_5m' else 'Market cap $40k before 5m', money(r['value_usd'])])
+        self.fill_table(self.tables['Triggered alerts'], alerts, lambda r: [stamp(r['captured_at']), r['chain'], r['address'], 'Activity alert' if r['rule'] == 'net_inflow_100k_5m' else 'Token alert', money(r['value_usd'])])
         for alert in sorted(alerts, key=lambda r: r['id']):
             if alert['id'] <= self.cursor:
                 continue
             if self.notifications.isChecked():
-                title = 'Net inflow above $100,000' if alert['rule'] == 'net_inflow_100k_5m' else 'Early $40,000 market cap'
+                title = 'Activity alert' if alert['rule'] == 'net_inflow_100k_5m' else 'Token alert'
                 self.tray.showMessage(title, alert['chain'] + ' · ' + money(alert['value_usd']) + '\n' + alert['address'], QSystemTrayIcon.MessageIcon.Information, 10000)
             self.cursor = alert['id']
             self.save_setting('notification_cursor', self.cursor)
@@ -657,7 +657,7 @@ class DesktopWindow(QMainWindow):
         try:
             save_key(self.store.directory, key, 'cielo')
             self.cielo_key.clear()
-            self.cielo_connection.setText('Cielo key saved locally. Load the feed to test access.')
+            self.cielo_connection.setText('Activity key saved locally. Load activity to test access.')
             self.cielo_connection.setStyleSheet('color:#188038')
         except (ValueError, OSError):
             QMessageBox.information(self, 'Cielo', 'The local credential could not be saved.')
@@ -681,7 +681,7 @@ class DesktopWindow(QMainWindow):
         self.tabs.setCurrentIndex(self.cielo_tab)
         self.cielo_busy = True
         self.cielo_feed_button.setEnabled(False)
-        self.cielo_status.setText('Loading Cielo wallet activity...')
+        self.cielo_status.setText('Loading wallet activity...')
         def fetch():
             try:
                 self.cielo_signals.snapshot.emit(CieloClient(key).feed(wallet))
@@ -692,7 +692,7 @@ class DesktopWindow(QMainWindow):
     def accept_cielo_feed(self, result):
         self.cielo_busy = False
         self.cielo_feed_button.setEnabled(True)
-        self.cielo_status.setText('Cielo response received. Raw activity is shown pending validation of trade fields. Token valuations continue to use Solscan.')
+        self.cielo_status.setText('Activity response received. Live trade parsing remains under development.')
         self.cielo_output.setPlainText(json.dumps(result, indent=2, ensure_ascii=False))
 
     def cielo_feed_error(self, message):
@@ -709,8 +709,8 @@ class DesktopWindow(QMainWindow):
             save_key(self.store.directory, key)
             self.monitor.set_key(key)
             self.solscan_key.clear()
-            self.solscan_connection.setText('Solscan key saved locally')
-            self.status_label.setText('Solscan credential saved securely on this Windows account. Start monitoring to check access.')
+            self.solscan_connection.setText('Token key saved locally')
+            self.status_label.setText('Credential saved securely on this Windows account. Start monitoring to check access.')
         except (ValueError, OSError) as error:
             QMessageBox.information(self, 'Solscan connection', str(error))
 

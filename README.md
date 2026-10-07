@@ -2,7 +2,7 @@
 
 ## Windows token monitor
 
-The dedicated dark desktop app includes live token discovery, saved alerts, a watchlist and system tray controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows x64 executable from [Releases](https://github.com/nightangelflowerwin-ops/gem-search/releases). See [desktop usage and build instructions](docs/DESKTOP.md) for coverage limits. Desktop data comes exclusively from Solscan, with direct blockchain mint verification. Solana only; a Solscan Pro API key is required. Five-minute net inflow alerts await live Solscan swap validation.
+The desktop app provides a workspace for tokens, watchlists, saved records and notification controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows preview from [Releases](https://github.com/nightangelflowerwin-ops/gem-search/releases). See [desktop usage](docs/DESKTOP.md) for setup and limitations.
 
 <p align="center">
   <a href="https://github.com/h100envy/gem-search/actions/workflows/ci.yml"><img src="https://github.com/h100envy/gem-search/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
