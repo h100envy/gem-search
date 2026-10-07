@@ -9,7 +9,7 @@ from token_monitor import select_market_caps, TokenMonitor
 
 class OnchainTests(unittest.TestCase):
     def response(self, amount='1000000000000000', decimals=6, kind='mint'):
-        return {'result': {'context': {'slot': 123}, 'value': [{'data': {'parsed': {'type': kind, 'info': {'supply': amount, 'decimals': decimals, 'isInitialized': True}}}}]}}
+        return {'result': {'context': {'slot': 123}, 'value': [{'owner': 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'executable': False, 'data': {'parsed': {'type': kind, 'info': {'supply': amount, 'decimals': decimals, 'isInitialized': True}}}}]}}
 
     def test_raw_mint_supply_and_decimals_are_preserved(self):
         sample = parse_supplies(self.response(), ['mint'])['mint']

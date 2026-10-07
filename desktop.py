@@ -10,6 +10,7 @@ from urllib.parse import quote
 from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget, QPlainTextEdit
+from data_quality import current_cap, current_value, mint_status
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
 from solscan_monitor import SolscanMonitor
@@ -39,7 +40,7 @@ def money(value):
 
 
 def stamp(value):
-    return time.strftime('%H:%M:%S', time.localtime(value)) if value else 'Not sampled'
+    return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(value)) if value else 'Not sampled'
 
 
 class StoreSignals(QObject):
@@ -72,8 +73,8 @@ class TokenTableModel(QAbstractTableModel):
                 return record.get('name', '') + '\n' + record['address']
             if self.headings[index.column()] == 'Reported market cap':
                 return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
-            if self.headings[index.column()] == 'Chain verification':
-                return str(record.get('verification_status', 'Pending mint verification')) + '\nPrice source: ' + str(record.get('price_source') or 'Not sampled') + '\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
+            if self.headings[index.column()] == 'Mint check':
+                return 'Mint metadata only; does not verify USD price or market cap.\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
             return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.UserRole:
             return self.records[index.row()]
@@ -323,7 +324,7 @@ class DesktopWindow(QMainWindow):
         filter_options.addWidget(self.minimum_cap)
         filter_options.addWidget(self.confirmed_only)
         self.filter_panel.hide()
-        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
+        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Mint check', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Mint check', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Saved tokens', ['Token / address', 'Chain', 'Historical source', 'Historical market cap', 'Saved price', 'Sample time'])]:
             page = QWidget()
             box = QVBoxLayout(page)
             box.setContentsMargins(10, 8, 10, 8)
@@ -678,14 +679,14 @@ class DesktopWindow(QMainWindow):
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
         minimum = self.minimum_cap.currentData()
-        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (r.get('market_cap_usd') is not None and r['market_cap_usd'] >= minimum)) and (not self.confirmed_only.isChecked() or r.get('verification_status', '').startswith('Mint and decimals confirmed'))]
+        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (current_cap(r) is not None and current_cap(r) >= minimum)) and (not self.confirmed_only.isChecked() or mint_status(r) == 'confirmed')]
         if self.token_sort.currentData() == 'cap':
-            filtered.sort(key=lambda r: (-(r['market_cap_usd'] if r.get('market_cap_usd') is not None else -1), r['name'].casefold(), r['address']))
+            filtered.sort(key=lambda r: (-(current_cap(r) if current_cap(r) is not None else -1), r['name'].casefold(), r['address']))
         elif self.token_sort.currentData() == 'newest':
             filtered.sort(key=lambda r: -(r.get('token_created_at') or 0))
         else:
             filtered.sort(key=lambda r: (r['name'].casefold(), r['address']))
-        values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), money(r.get('net_inflow_m5_usd')) if r.get('net_inflow_m5_usd') is not None else 'Pending validation', stamp(r.get('flow_updated_at'))]
+        values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), 'Unavailable', 'Not measured']
         self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
@@ -726,15 +727,11 @@ class DesktopWindow(QMainWindow):
         self.save_setting('keep_on_top', enabled)
 
     def cap_cell(self, record):
-        value = record.get('market_cap_usd')
-        if value is None:
-            return 'Awaiting provider'
-        sampled = record.get('market_cap_updated_at') or 0
-        return money(value) + (' · STALE' if time.time() - sampled > 180 else '')
+        value = current_cap(record)
+        return money(value) if value is not None else 'Unavailable'
 
     def valuation_cell(self, record):
-        status = record.get('verification_status', 'Pending mint verification')
-        return ('Confirmed mint' if status.startswith('Mint and decimals confirmed') else 'Mismatch' if 'differ' in status else 'Pending') + (' · STALE' if time.time() - (record.get('onchain_supply_sampled_at') or 0) > 180 else '')
+        return {'confirmed': 'Confirmed mint', 'mismatch': 'Mismatch', 'pending': 'Pending', 'unavailable': 'Unavailable'}[mint_status(record)]
 
     def open_explorer(self, table):
         record = self.selected(table)
@@ -838,7 +835,7 @@ class DesktopWindow(QMainWindow):
         if row < 0 or row >= table.model().rowCount():
             return
         record = table.model().records[row]
-        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Solscan market cap: ' + money(record.get('market_cap_usd')), 'Solscan price: ' + money(record.get('price_usd')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Verification: ' + record.get('verification_status', 'Pending'), 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net inflow: pending Solscan swap validation']))
+        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Current reported market cap: ' + money(current_cap(record)), 'Current reported price: ' + money(current_value(record, 'price_usd', 'price_sampled_at')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Mint metadata check: ' + self.valuation_cell(record) + '. Does not verify USD value.', 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net inflow: unavailable; no measured swap flow']))
 
     def show_alert_history(self):
         self.tabs.setCurrentIndex(1)

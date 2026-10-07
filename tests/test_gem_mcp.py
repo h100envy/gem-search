@@ -18,7 +18,7 @@ class MCPTests(unittest.TestCase):
         self.store = DesktopStore(self.directory)
         self.alerts = TokenAlerts(self.store.connect)
         for index in range(125):
-            self.store.record('solana', 'fixture-' + str(index), {'name': 'Token ' + str(index), 'data_source': 'Solscan', 'market_cap_usd': (index + 1) * 1000000, 'market_cap_updated_at': time.time(), 'verification_status': 'Mint and decimals confirmed' if index % 2 == 0 else 'Pending', 'token_created_at': index + 1, 'api_key': 'PRIVATE_SENTINEL', 'strategy': 'PRIVATE_RULE_SENTINEL', 'source': 'PRIVATE_SOURCE_SENTINEL'})
+            self.store.record('solana', 'fixture-' + str(index), {'name': 'Token ' + str(index), 'data_source': 'Solscan', 'market_cap_usd': (index + 1) * 1000000, 'market_cap_updated_at': time.time(), 'onchain_supply_sampled_at': time.time(), 'verification_status': 'Mint and decimals confirmed' if index % 2 == 0 else 'Pending', 'token_created_at': index + 1, 'api_key': 'PRIVATE_SENTINEL', 'strategy': 'PRIVATE_RULE_SENTINEL', 'source': 'PRIVATE_SOURCE_SENTINEL'})
         self.store.record('solana', 'unknown-fixture', {'name': 'Unknown', 'data_source': 'Solscan', 'market_cap_usd': None})
         self.store.record('solana', 'old-fixture', {'name': 'Old', 'market_cap_usd': 9000000000})
         self.store.watch('solana', 'fixture-124')

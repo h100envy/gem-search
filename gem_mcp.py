@@ -11,6 +11,7 @@ from typing import Any, Literal
 from mcp import types
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from data_quality import current_cap, current_value, fresh, mint_status
 from kolscan_directory import bundled_wallets, read_wallets
 
 
@@ -25,19 +26,22 @@ def number(value):
     return value if type(value) in (int, float) and math.isfinite(value) else None
 
 
-def token_view(record):
+def token_view(record, historical=False):
     sampled = number(record.get('market_cap_updated_at'))
     status = str(record.get('verification_status', ''))
     return {
         'name': str(record.get('name', ''))[:160],
         'address': str(record.get('address', ''))[:128],
         'chain': str(record.get('chain', ''))[:40],
-        'market_cap_usd': number(record.get('market_cap_usd')),
-        'price_usd': number(record.get('price_usd')),
+        'market_cap_usd': number(record.get('market_cap_usd')) if historical else current_cap(record),
+        'price_usd': number(record.get('price_usd')) if historical else current_value(record, 'price_usd', 'price_sampled_at'),
         'created_at': number(record.get('token_created_at')),
         'sampled_at': sampled,
-        'stale': sampled is None or time.time() - sampled > 180,
-        'mint_status': 'confirmed' if status.startswith('Mint and decimals confirmed') else 'mismatch' if 'differ' in status else 'pending'
+        'stale': not fresh(sampled),
+        'historical': historical,
+        'mint_status': mint_status(record),
+        'mint_check_scope': 'Mint metadata only; does not verify USD value',
+        'net_inflow_m5_usd': None
     }
 
 
@@ -82,7 +86,7 @@ def create_server(directory):
         if scope == 'watchlist':
             watched = {(r['chain'], r['address']) for r in reader.rows('SELECT chain,address FROM desktop_watchlist')}
             records = [r for r in records if (r['chain'], r['address']) in watched]
-        views = [token_view(r) for r in records]
+        views = [token_view(r, historical=scope == 'saved') for r in records]
         views = [r for r in views if query.casefold() in (r['name'] + ' ' + r['address'] + ' ' + r['chain']).casefold() and (not minimum_market_cap or (r['market_cap_usd'] is not None and r['market_cap_usd'] >= minimum_market_cap)) and (not confirmed_only or r['mint_status'] == 'confirmed')]
         if sort == 'market_cap':
             views.sort(key=lambda r: (-(r['market_cap_usd'] if r['market_cap_usd'] is not None else -1), r['name'].casefold(), r['address']))

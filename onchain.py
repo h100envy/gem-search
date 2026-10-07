@@ -29,7 +29,7 @@ def parse_supplies(response, addresses):
         raise ValueError('Invalid RPC account response')
     samples = {}
     for address, account in zip(addresses, accounts):
-        if not isinstance(account, dict):
+        if not isinstance(account, dict) or account.get('owner') not in {'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'} or account.get('executable') is not False:
             continue
         parsed = (account.get('data') or {}).get('parsed', {}) if isinstance(account.get('data'), dict) else {}
         info = parsed.get('info', {})
