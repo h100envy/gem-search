@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$GEMSEARCH Burn — Gem Search</title>
+<meta name="description" content="How much $GEMSEARCH has been burned, read live from Solana. Burns happen every 12 hours and anyone can burn their own tokens from this page.">
+<meta property="og:title" content="$GEMSEARCH burn tracker: supply burned, live from chain">
+<meta property="og:description" content="Total burned, current supply, every burn transaction, and the next scheduled burn. Every burn is on-chain.">
+<meta property="og:image" content="og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@gemsearchfun">
+<link rel="icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.99.0/lib/index.iife.min.js" integrity="sha384-DjHoHg45N+L5RZPO5p+uK874TyHExfoonwFDUKKpozAERZGg+SY8y+ntxvWd672b" crossorigin="anonymous"></script>
+<style>
+:root{--bg:#06041a;--line:#2a2560;--text:#f4f0ff;--muted:#b9b3e0;--dim:#7d78a8;--green:#4dff6a;--cyan:#1fd2ff;--yellow:#ffe81f;--orange:#ff8a1f;--red:#ff5e8e;--rainbow:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#2b1170 0%,#120a3a 45%,var(--bg) 80%) no-repeat,var(--bg);color:var(--text);font-family:"Space Grotesk",system-ui,Arial,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:hidden}
+a{color:inherit}.mono{font-family:"JetBrains Mono",Menlo,monospace}
+.rb{background:var(--rainbow);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+header{text-align:center;padding:48px 0 10px}
+.live{display:inline-flex;align-items:center;gap:8px;font-size:13px;letter-spacing:.15em;color:#ffd9c2;border:1px solid rgba(255,138,31,.5);background:rgba(255,138,31,.08);padding:6px 14px;border-radius:999px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--orange);box-shadow:0 0 10px var(--orange);animation:p 1.4s infinite}@keyframes p{50%{opacity:.3}}
+.big{font-size:clamp(78px,15vw,180px);font-weight:700;line-height:1;letter-spacing:-.05em;margin:22px 0 8px}
+.sub{font-size:clamp(18px,2.4vw,24px);color:var(--muted);max-width:760px;margin:0 auto}
+.sub b{color:var(--text)}
+.bar{height:16px;border-radius:999px;overflow:hidden;max-width:760px;margin:26px auto 10px;background:#140f3c}
+.bar i{display:block;height:100%;width:0;background:var(--rainbow);transition:width .8s}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:860px;margin:22px auto 0}
+.stat{padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:rgba(19,15,56,.7);text-align:center}
+.stat .k{font-size:12px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+.stat .v{font-size:22px;font-weight:700;margin-top:2px;white-space:nowrap}
+.stat .s{font-size:12px;color:var(--dim)}
+@media (max-width:640px){.stats{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;margin:36px 0 18px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:linear-gradient(180deg,rgba(19,15,56,.92),rgba(12,9,40,.92));border:1px solid var(--line);border-radius:22px;padding:22px;position:relative;min-width:0}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:22px 22px 0 0;background:var(--rainbow);opacity:.85}
+h2{font-size:18px;margin:0 0 14px;display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
+h2 small{font-size:12px;color:var(--dim);font-weight:400}
+.feed{display:grid;gap:6px}
+.row{display:grid;grid-template-columns:auto 1fr auto auto;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;background:#0a0822;border:1px solid #1d1850;text-decoration:none}
+.row:hover{border-color:#5b4fd0}
+.row .amt{font-weight:700;color:var(--orange);white-space:nowrap}
+.row .w{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .a{font-size:12px;color:var(--dim);white-space:nowrap}
+.row .tx{font-size:12px;color:var(--cyan);white-space:nowrap}
+.empty{color:var(--dim);font-size:15px;padding:8px 0}
+@media (max-width:480px){.row{grid-template-columns:1fr auto;grid-template-areas:'amt a' 'w tx';gap:2px 10px}.row .amt{grid-area:amt}.row .w{grid-area:w}.row .a{grid-area:a;text-align:right}.row .tx{grid-area:tx;text-align:right}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:999px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid transparent;cursor:pointer;font-family:inherit;transition:transform .15s,opacity .15s;width:100%}
+.btn:hover{transform:translateY(-1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn.primary{background:var(--rainbow);color:#0a0820}
+.btn.ghost{border-color:rgba(255,255,255,.22);color:var(--text);background:rgba(255,255,255,.04)}
+.btn.fire{background:linear-gradient(90deg,#ff2e7e,#ff8a1f);color:#0a0820}
+label{display:block;font-size:13px;color:var(--muted);margin:16px 0 6px;letter-spacing:.02em}
+.amt-in{position:relative}
+.amt-in input{width:100%;background:#0a0822;border:1px solid var(--line);border-radius:12px;padding:12px 120px 12px 14px;color:var(--text);font:600 17px "JetBrains Mono",Menlo,monospace;outline:none}
+.amt-in input:focus{border-color:#7a6bff}
+.amt-in span{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:14px}
+.chips{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.chip{padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:#0a0822;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+.chip:hover{border-color:var(--cyan);color:var(--text)}
+.chip:disabled{opacity:.45;cursor:not-allowed}
+.who{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 14px;border-radius:14px;background:#0a0822;border:1px solid var(--line);font-size:14px;color:var(--muted);margin-top:14px}
+.who b{color:var(--text)}
+.who[hidden]{display:none}
+.confirm{margin:16px 0 12px;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,138,31,.5);background:rgba(255,138,31,.08);color:#ffe2cc;font-size:14px;display:none}
+.confirm b{color:#fff}
+.hint{font-size:13px;color:var(--dim);margin-top:10px}
+.err{margin-top:14px;padding:12px 14px;border-radius:12px;background:rgba(255,94,142,.1);border:1px solid rgba(255,94,142,.5);color:#ffd0dd;font-size:14px;display:none;word-break:break-word}
+.ok{display:none;margin-top:14px;padding:14px 16px;border-radius:14px;background:rgba(77,255,106,.08);border:1px solid rgba(77,255,106,.5);font-size:14px;word-break:break-all}
+.ok a{color:var(--green)}
+.how{color:var(--muted);font-size:15px}.how p{margin:0 0 10px}
+footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(--dim);font-size:13px;margin-top:30px}
+footer p{margin:0 0 8px}
+
+/* shared navigation */
+.gnav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(6,4,26,.72);border-bottom:1px solid rgba(255,255,255,.07)}
+.gnav .in{max-width:1120px;margin:0 auto;padding:0 20px;height:64px;display:flex;align-items:center;gap:28px}
+.gnav .brand{display:flex;align-items:center;gap:10px;text-decoration:none;font:700 20px "Space Grotesk",system-ui,sans-serif;letter-spacing:-.5px;color:#f4f0ff;flex:none}
+.gnav .brand img{width:32px;height:32px;border-radius:50%}
+.gnav .brand b{font-weight:700;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gnav .links{display:flex;gap:4px;align-items:center}
+.gnav .links a{padding:8px 12px;border-radius:10px;text-decoration:none;font:500 15px "Space Grotesk",system-ui,sans-serif;color:#b9b3e0;white-space:nowrap;transition:color .15s,background .15s}
+.gnav .links a:hover{color:#fff;background:rgba(255,255,255,.06)}
+.gnav .links a.on{color:#fff;background:rgba(255,255,255,.09)}
+.gnav .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.gnav .ic{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;color:#d9d4ff;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.03);text-decoration:none}
+.gnav .ic:hover{color:#fff;border-color:rgba(255,255,255,.3)}
+.gnav .buy{padding:9px 18px;border-radius:999px;font:700 15px "Space Grotesk",system-ui,sans-serif;text-decoration:none;color:#0a0820;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);white-space:nowrap}
+.gnav details{display:none;position:relative}
+.gnav summary{list-style:none;cursor:pointer;padding:8px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.18);font:600 14px "Space Grotesk",system-ui,sans-serif;color:#f4f0ff}
+.gnav summary::-webkit-details-marker{display:none}
+.gnav .drop{position:absolute;right:0;top:46px;min-width:200px;padding:8px;border-radius:16px;background:#120d36;border:1px solid #2a2560;box-shadow:0 20px 50px rgba(0,0,0,.5);display:grid}
+.gnav .drop a{padding:10px 12px;border-radius:10px;text-decoration:none;color:#e9e5ff;font:500 15px "Space Grotesk",system-ui,sans-serif}
+.gnav .drop a.on,.gnav .drop a:hover{background:rgba(255,255,255,.08)}
+@media (max-width:860px){.gnav .links,.gnav .ic{display:none}.gnav details{display:block}.gnav .in{gap:12px}}
+</style>
+</head>
+<body>
+<nav class="gnav"><div class="in">
+  <a class="brand" href="./"><img src="avatar.png" alt=""><span>gem<b>search</b></span></a>
+  <div class="links"><a href="scan">Scan</a><a href="live">Live</a><a href="launch">Launch</a><a href="me">My bag</a><a href="record">Council</a><a href="burn" class="on">Burn</a></div>
+  <div class="right">
+    <a class="ic" href="https://x.com/gemsearchfun" target="_blank" rel="noopener" aria-label="Gem Search on X"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.9 2H22l-6.8 7.8L23 22h-6.2l-4.8-6.3L6.4 22H3.3l7.3-8.3L1 2h6.3l4.4 5.8L18.9 2Zm-1.1 18.1h1.7L6.3 3.8H4.5l13.3 16.3Z"/></svg></a>
+    <a class="ic" href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener" aria-label="GitHub"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.2c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.3 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5Z"/></svg></a>
+    <details><summary>Menu</summary><div class="drop"><a href="scan">Scan</a><a href="live">Live</a><a href="launch">Launch</a><a href="me">My bag</a><a href="record">Council</a><a href="burn" class="on">Burn</a><a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">X @gemsearchfun</a><a href="https://github.com/h100envy/gem-search" target="_blank" rel="noopener">GitHub</a><a href="https://t.me/gemsearchfunbot" target="_blank" rel="noopener">Telegram bot</a></div></details>
+    <a class="buy" href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Buy</a>
+  </div>
+</div></nav>
+
+<header class="wrap">
+  <span class="live mono"><span class="dot"></span>$GEMSEARCH · BURN</span>
+  <div class="big rb" id="burned">–</div>
+  <div class="sub"><b id="pct">–%</b> of the 1,000,000,000 $GEMSEARCH supply burned. Every burn is on-chain.</div>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="stats">
+    <div class="stat"><div class="k">Current supply</div><div class="v mono" id="supply">–</div><div class="s">read live from Solana</div></div>
+    <div class="stat"><div class="k">Next scheduled burn</div><div class="v mono" id="count">–</div><div class="s" id="nextat">every 12 hours · 00:00 &amp; 12:00 UTC</div></div>
+    <div class="stat"><div class="k">Burned so far</div><div class="v mono" id="burnedFull">–</div><div class="s">tokens, gone for good</div></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <section class="card"><h2>Recent burns <small class="mono" id="upd"></small></h2><div class="feed" id="feed"><div class="empty">Reading burns from chain…</div></div></section>
+    <section class="card" id="burncard">
+      <h2>Burn $GEMSEARCH</h2>
+      <div class="how" style="font-size:14px">Burn your own tokens from your wallet. The transaction is built here, in your browser, and your wallet signs it. The transaction never touches our server and no key ever leaves your wallet.</div>
+      <div style="margin-top:16px"><button class="btn primary" id="connect">Connect wallet</button></div>
+      <div class="who" id="who" hidden><span>Wallet <b class="mono" id="addr"></b></span><span>Balance <b class="mono" id="bal">…</b></span></div>
+      <label for="amount">Amount to burn</label>
+      <div class="amt-in"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" disabled><span>$GEMSEARCH</span></div>
+      <div class="chips"><button class="chip" data-f="0.25" disabled>25%</button><button class="chip" data-f="0.5" disabled>50%</button><button class="chip" data-f="1" disabled>MAX</button></div>
+      <div class="confirm" id="confirm"></div>
+      <button class="btn fire" id="go" disabled>Burn</button>
+      <div class="hint">A Token-2022 BurnChecked instruction on mint <span class="mono">GQCG…pump</span>. Network fee is a fraction of a cent in SOL.</div>
+      <div class="err" id="err"></div>
+      <div class="ok" id="ok"></div>
+    </section>
+  </div>
+  <section class="card how">
+    <h2>How the burn works</h2>
+    <p>$GEMSEARCH launched on pump.fun with 1,000,000,000 tokens. A burn destroys tokens on chain, so the supply shrinks. The number at the top is simply the original 1B minus the supply Solana reports right now, so it counts every burn ever made, by anyone.</p>
+    <p>The team burns on a schedule, every 12 hours at 00:00 and 12:00 UTC, by hand from this same button. Each burn is a normal Solana transaction: click any row to see it on Solscan.</p>
+    <p>Anyone holding $GEMSEARCH can burn their own tokens here too. It cannot be undone.</p>
+  </section>
+</main>
+
+<footer><div class="wrap"><p><b style="color:var(--muted)">Burning reduces supply. It is not a promise of price.</b></p>Open source · <a href="https://github.com/h100envy/gem-search/tree/launchpad/launchpad" target="_blank" rel="noopener">github.com/h100envy/gem-search</a> · <a href="https://x.com/gemsearchfun" target="_blank" rel="noopener">@gemsearchfun</a> · <a href="https://solscan.io/token/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump" target="_blank" rel="noopener">Token on Solscan</a> · Not financial advice.</div></footer>
+
+<script>
+const API = 'https://api.gemsearch.fun';
+const MINT = 'GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump';
+const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const DECIMALS = 6, INITIAL = 1e9;
+const W = window.solanaWeb3;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const short = (a) => (a ? a.slice(0, 4) + '…' + a.slice(-4) : '?');
+const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + 's ago' : s < 3600 ? Math.round(s / 60) + 'm ago' : s < 86400 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago'; };
+const compact = (n) => (n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(n >= 1e8 ? 1 : 2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : n.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+const whole = (n) => Math.round(n).toLocaleString('en-US');
+
+// --- stats ---
+function nextBurnAt(now = Date.now()) { const half = 43200000; return (Math.floor(now / half) + 1) * half; }
+function tick() {
+  const at = nextBurnAt(), s = Math.max(0, Math.floor((at - Date.now()) / 1000));
+  const p = (x) => String(x).padStart(2, '0');
+  $('count').textContent = `${p(Math.floor(s / 3600))}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}`;
+  $('nextat').textContent = `at ${new Date(at).toISOString().slice(11, 16)} UTC · every 12 hours`;
+}
+tick(); setInterval(tick, 1000);
+
+async function load() {
+  try {
+    const d = await (await fetch(API + '/v1/burns', { cache: 'no-store' })).json();
+    if (typeof d.supply !== 'number') throw new Error();
+    $('burned').textContent = compact(d.burned);
+    $('pct').textContent = d.burnedPct.toFixed(2) + '%';
+    $('bar').style.width = Math.max(0.5, d.burnedPct) + '%';
+    $('supply').textContent = compact(d.supply);
+    $('supply').title = whole(d.supply);
+    $('burnedFull').textContent = whole(d.burned);
+    $('upd').textContent = 'click a burn to see it on Solscan';
+    $('feed').innerHTML = d.recent.length
+      ? d.recent.map((b) => `<a class="row" href="https://solscan.io/tx/${encodeURIComponent(b.signature)}" target="_blank" rel="noopener"><span class="amt mono">🔥 ${compact(b.amount)}</span><span class="w mono" title="${esc(b.wallet)}">${esc(short(b.wallet))}</span><span class="a mono">${b.at ? ago(b.at) : ''}</span><span class="tx mono">tx ↗</span></a>`).join('')
+      : '<div class="empty">No burn transactions found yet. The total above still counts every burn, read from the supply.</div>';
+  } catch { $('upd').textContent = 'the API did not answer; retrying…'; }
+}
+load(); setInterval(load, 60000);
+
+// --- wallet ---
+let provider = null, owner = null, account = null, balRaw = 0n, busy = false;
+function findProvider() {
+  return window.phantom?.solana?.isPhantom ? window.phantom.solana : window.solflare?.isSolflare ? window.solflare : window.backpack ?? window.solana ?? null;
+}
+function fail(msg) { $('err').textContent = msg; $('err').style.display = 'block'; }
+function clearErr() { $('err').style.display = 'none'; }
+// The public Solana RPC refuses browsers, so reads go through our API (read-only: it never sees a signature request).
+async function api(path) {
+  const r = await fetch(API + path, { cache: 'no-store' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'the API did not answer; try again in a minute');
+  return j;
+}
+const ownerInfo = async () => (await api('/v1/burns?owner=' + encodeURIComponent(owner))).owner;
+// Decimal string <-> raw u64, without floating point.
+function toRaw(s) {
+  s = String(s).trim().replace(/,/g, '');
+  if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
+  const [i, f = ''] = s.split('.');
+  if (f.length > DECIMALS) return null;
+  return BigInt(i || '0') * 10n ** BigInt(DECIMALS) + BigInt((f + '000000').slice(0, DECIMALS));
+}
+function fromRaw(r) {
+  const s = r.toString().padStart(DECIMALS + 1, '0');
+  const i = s.slice(0, -DECIMALS), f = s.slice(-DECIMALS).replace(/0+$/, '');
+  return f ? `${i}.${f}` : i;
+}
+function b58(bytes) {
+  const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n = 0n; for (const b of bytes) n = n * 256n + BigInt(b);
+  let out = ''; while (n > 0n) { out = A[Number(n % 58n)] + out; n /= 58n; }
+  for (const b of bytes) { if (b) break; out = '1' + out; }
+  return out;
+}
+const pretty = (r) => Number(fromRaw(r)).toLocaleString('en-US', { maximumFractionDigits: 6 });
+
+async function loadBalance() {
+  $('bal').textContent = '…';
+  // The account that holds the most $GEMSEARCH; usually the only one.
+  const o = await ownerInfo();
+  account = o.account; balRaw = BigInt(o.balance);
+  $('bal').textContent = pretty(balRaw) + ' $GEMSEARCH';
+  render();
+}
+
+function render() {
+  const has = owner && balRaw > 0n && !busy;
+  $('amount').disabled = !has;
+  document.querySelectorAll('.chip').forEach((c) => (c.disabled = !has));
+  const raw = toRaw($('amount').value);
+  const valid = has && raw !== null && raw > 0n && raw <= balRaw;
+  $('go').disabled = !valid;
+  $('go').textContent = busy ? 'Burning…' : valid ? `Burn ${pretty(raw)} $GEMSEARCH` : 'Burn';
+  if (valid) { $('confirm').innerHTML = `This destroys <b>${esc(pretty(raw))} $GEMSEARCH</b> forever. It cannot be undone.`; $('confirm').style.display = 'block'; }
+  else $('confirm').style.display = 'none';
+  if (owner && raw !== null && raw > balRaw) { $('confirm').innerHTML = 'That is more than this wallet holds.'; $('confirm').style.display = 'block'; }
+}
+$('amount').addEventListener('input', render);
+document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+  const f = c.dataset.f, raw = f === '1' ? balRaw : (balRaw * BigInt(Math.round(Number(f) * 100))) / 100n;
+  $('amount').value = fromRaw(raw); render();
+}));
+
+$('connect').addEventListener('click', async () => {
+  clearErr();
+  provider = findProvider();
+  if (!provider) { window.open('https://phantom.app/', '_blank', 'noopener'); return fail('No Solana wallet found in this browser. Install Phantom, Solflare or Backpack, or open this page inside your wallet app.'); }
+  try {
+    const r = await provider.connect();
+    const pk = r?.publicKey ?? provider.publicKey;
+    owner = pk.toString();
+  } catch { return fail('The wallet did not connect.'); }
+  $('connect').textContent = 'Wallet connected';
+  $('addr').textContent = short(owner);
+  $('who').hidden = false;
+  try { await loadBalance(); if (balRaw === 0n) fail('This wallet holds no $GEMSEARCH.'); } catch (e) { fail('Could not read your balance: ' + e.message); }
+});
+
+function burnIx(raw) {
+  const data = new Uint8Array(10);
+  data[0] = 15; // BurnChecked
+  new DataView(data.buffer).setBigUint64(1, raw, true);
+  data[9] = DECIMALS;
+  return new W.TransactionInstruction({
+    programId: new W.PublicKey(TOKEN_2022),
+    keys: [
+      { pubkey: new W.PublicKey(account), isSigner: false, isWritable: true },
+      { pubkey: new W.PublicKey(MINT), isSigner: false, isWritable: true },
+      { pubkey: new W.PublicKey(owner), isSigner: true, isWritable: false },
+    ],
+    data,
+  });
+}
+
+$('go').addEventListener('click', async () => {
+  clearErr(); $('ok').style.display = 'none';
+  const raw = toRaw($('amount').value);
+  if (!W) return fail('The page did not finish loading; refresh and try again.');
+  if (!owner || !account || raw === null || raw <= 0n || raw > balRaw) return fail('Pick an amount up to your balance.');
+  busy = true; render();
+  try {
+    if (!provider.signAndSendTransaction) throw new Error('This wallet cannot send transactions from a page. Use Phantom, Solflare or Backpack.');
+    const { blockhash, account: acct } = await ownerInfo();
+    if (acct !== account) throw new Error('Your token account changed; reconnect the wallet.');
+    const msg = new W.TransactionMessage({
+      payerKey: new W.PublicKey(owner),
+      recentBlockhash: blockhash,
+      instructions: [W.ComputeBudgetProgram.setComputeUnitLimit({ units: 40000 }), W.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50000 }), burnIx(raw)],
+    }).compileToV0Message();
+    const tx = new W.VersionedTransaction(msg);
+    let signature;
+    try {
+      const r = await provider.signAndSendTransaction(tx);
+      signature = typeof r === 'string' ? r : r?.signature;
+    } catch (e) { throw new Error(/reject|cancel|denied/i.test(e?.message ?? '') ? 'You cancelled the signature. Nothing was sent.' : 'The wallet did not send it: ' + (e?.message ?? 'unknown error')); }
+    if (signature && typeof signature !== 'string') signature = b58(signature);
+    if (!signature) throw new Error('The wallet did not return a signature; check your wallet activity before trying again.');
+    const link = `<a href="https://solscan.io/tx/${encodeURIComponent(signature)}" target="_blank" rel="noopener">${esc(signature)}</a>`;
+    $('ok').innerHTML = `Sent. Waiting for Solana to confirm…<br>${link}`; $('ok').style.display = 'block';
+    let st = null;
+    for (let i = 0; i < 30; i++) {
+      await new Promise((ok) => setTimeout(ok, 2000));
+      st = (await api('/v1/status/' + encodeURIComponent(signature)).catch(() => null))?.status;
+      if (st === 'failed') throw new Error('The burn failed on chain. Nothing was burned. ' + signature);
+      if (st === 'live') break;
+    }
+    $('ok').innerHTML = st === 'live' ? `🔥 Burned ${esc(pretty(raw))} $GEMSEARCH. The totals update within a minute.<br>${link}` : `Still confirming. Check the transaction:<br>${link}`;
+    $('amount').value = '';
+    await loadBalance().catch(() => {});
+    setTimeout(load, 5000); setTimeout(load, 65000);
+  } catch (e) { fail(e.message); } finally { busy = false; render(); }
+});
+render();
+</script>
+<script src="crawlers.js" defer></script>
+</body>
+</html>
