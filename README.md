@@ -2,6 +2,8 @@
 
 ## Windows token monitor
 
+The Windows app includes a read-only MCP connection for compatible assistants. Anyone can connect their own local app using Assistant connection in the sidebar. See [MCP setup and tools](docs/MCP.md).
+
 The desktop app provides a workspace for tokens, watchlists, saved records and notification controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows preview from [Releases](https://github.com/nightangelflowerwin-ops/gem-search/releases). See [desktop usage](docs/DESKTOP.md) for setup and limitations.
 
 <p align="center">

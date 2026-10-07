@@ -1,5 +1,7 @@
 Gem Search retains its MIT license and original author credits in LICENSE.
 
+The MCP connection includes the official MCP Python SDK 2.3.0 and its runtime dependencies. Distribution license and notice files are included in licenses/ under the package names. SDK source: https://github.com/modelcontextprotocol/python-sdk
+
 This Windows package includes Python 3.11.9 (PSF license), PySide6 and Qt 6.10.1 (LGPL version 3), and the PyInstaller bootloader (GPL version 2 with its distribution exception). License texts are included in licenses/.
 
 Qt and PySide source and license information:

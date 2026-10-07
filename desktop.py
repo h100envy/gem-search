@@ -432,6 +432,34 @@ class DesktopWindow(QMainWindow):
         self.cielo_signals.error.connect(self.cielo_feed_error, Qt.ConnectionType.QueuedConnection)
         self.cielo_busy = False
         self.cielo_tab = self.tabs.addTab(feed_page, 'Wallet activity')
+        mcp_page = QWidget()
+        mcp_box = QVBoxLayout(mcp_page)
+        mcp_box.setSpacing(16)
+        mcp_intro = QLabel('Connect an MCP-compatible assistant to your local Gem Search data. The assistant launches this same application in read-only MCP mode. No second scanner is started.')
+        mcp_intro.setWordWrap(True)
+        mcp_box.addWidget(mcp_intro)
+        mcp_privacy = QLabel('Only selected token, wallet, alert and status fields are returned. Credentials and strategy settings are excluded. Requested results may be sent to the model provider by your assistant. This local connection does not provide a public HTTPS endpoint.')
+        mcp_privacy.setWordWrap(True)
+        mcp_box.addWidget(mcp_privacy)
+        mcp_box.addWidget(QLabel('Available tools: list_tokens, get_token, list_wallets, get_alerts, get_status'))
+        mcp_actions = QHBoxLayout()
+        mcp_copy = QPushButton('Copy connection setup')
+        mcp_copy.setObjectName('primary')
+        mcp_copy.clicked.connect(self.copy_mcp_setup)
+        mcp_actions.addWidget(mcp_copy)
+        self.mcp_test = QPushButton('Test connection')
+        self.mcp_test.clicked.connect(self.test_mcp_connection)
+        mcp_actions.addWidget(self.mcp_test)
+        mcp_actions.addStretch()
+        mcp_box.addLayout(mcp_actions)
+        self.mcp_status = QLabel('Ready for a local assistant connection. Copy the setup into your assistant’s MCP server configuration.')
+        self.mcp_status.setWordWrap(True)
+        mcp_box.addWidget(self.mcp_status)
+        mcp_box.addStretch()
+        self.mcp_signals = StoreSignals(self)
+        self.mcp_signals.snapshot.connect(self.accept_mcp_probe, Qt.ConnectionType.QueuedConnection)
+        self.mcp_signals.error.connect(self.fail_mcp_probe, Qt.ConnectionType.QueuedConnection)
+        self.tabs.addTab(mcp_page, 'Assistant connection')
         settings_page = QWidget()
         settings = QVBoxLayout(settings_page)
         settings.setSpacing(18)
@@ -554,6 +582,7 @@ class DesktopWindow(QMainWindow):
                     if self.stop.is_set():
                         return
                 snapshot = {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
+                self.store.set('mcp_runtime', {'sampled_at': time.time(), 'monitoring': bool(self.monitor.status()['enabled'])})
                 self.store_signals.snapshot.emit(snapshot)
             except Exception as error:
                 self.store_signals.error.emit('Local data operation failed: ' + type(error).__name__)
@@ -566,6 +595,31 @@ class DesktopWindow(QMainWindow):
     def open_connection(self):
         self.tabs.setCurrentIndex(self.connection_tab)
         self.solscan_key.setFocus()
+
+    def copy_mcp_setup(self):
+        from gem_mcp import launch_config
+        QApplication.clipboard().setText(json.dumps(launch_config(self.store.directory), indent=2))
+        self.mcp_status.setText('Connection setup copied. Add it to your assistant’s MCP server configuration. No API keys are included.')
+
+    def test_mcp_connection(self):
+        from gem_mcp import launch_config, probe_connection
+        self.mcp_test.setEnabled(False)
+        self.mcp_status.setText('Testing the local MCP handshake and available tools...')
+        config = launch_config(self.store.directory)
+        def probe():
+            try:
+                self.mcp_signals.snapshot.emit(probe_connection(config))
+            except Exception:
+                self.mcp_signals.error.emit('The local MCP connection could not be verified. Check that the application and connection setup are current.')
+        threading.Thread(target=probe, daemon=True).start()
+
+    def accept_mcp_probe(self, result):
+        self.mcp_test.setEnabled(True)
+        self.mcp_status.setText('Connection verified. ' + str(result['tools']) + ' read-only tools available. No external assistant has been configured automatically.')
+
+    def fail_mcp_probe(self, message):
+        self.mcp_test.setEnabled(True)
+        self.mcp_status.setText(message)
 
     def start_monitor(self):
         if not self.monitor.client.key:
@@ -836,7 +890,13 @@ def main():
     parser.add_argument('--smoke-test')
     parser.add_argument('--responsiveness-test')
     parser.add_argument('--settings', action='store_true')
+    parser.add_argument('--mcp', action='store_true')
     args = parser.parse_args()
+    if args.mcp:
+        from gem_mcp import run_server
+        directory = Path(args.data_dir) if args.data_dir else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'GemSearch'
+        run_server(directory)
+        return
     if args.responsiveness_test:
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     application = QApplication(sys.argv[:1])
