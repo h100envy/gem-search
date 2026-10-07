@@ -35,9 +35,8 @@ class EVMTests(unittest.TestCase):
             store = DesktopStore(directory)
             monitor = DexMonitor(TokenAlerts(store.connect), store.record, store.watchlist, store.tokens)
             def response(path):
-                if path.startswith('tokens/'):
-                    chain = path.split('/')[2]
-                    return [{'chainId': chain, 'baseToken': {'address': ADDRESS}, 'pairAddress': ADDRESS, 'marketCap': 50000, 'liquidity': {'usd': 10000}}]
+                if path.startswith('latest/dex/tokens/'):
+                    return {'pairs': [{'chainId': chain, 'baseToken': {'address': ADDRESS}, 'pairAddress': ADDRESS, 'marketCap': 50000, 'liquidity': {'usd': 10000}} for chain in ['base', 'ethereum']]}
                 return [{'chainId': chain, 'tokenAddress': ADDRESS} for chain in ['base', 'ethereum']]
             sample = {ADDRESS: {'onchain_supply_sampled_at': time.time(), 'onchain_decimals': 18}}
             with patch('dex_monitor.request', side_effect=response), patch('dex_monitor.evm_supplies', return_value=sample):

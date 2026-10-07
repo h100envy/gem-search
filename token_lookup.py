@@ -19,7 +19,7 @@ def lookup_token(text, chain='', fetch=request, verify_solana=solana_supplies, v
         raise ValueError('Enter a valid token address')
     network, address = key
     if network == 'solana' or chain in CHAINS[1:]:
-        pairs = fetch('tokens/v1/' + network + '/' + address)
+        pairs = fetch('token-pairs/v1/' + network + '/' + address)
         networks = [network]
     else:
         result = fetch('latest/dex/search?q=' + quote(address, safe=''))

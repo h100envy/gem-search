@@ -120,7 +120,10 @@ class DexMonitor(SolscanMonitor):
                     return
                 batch = addresses[start:start + 30]
                 try:
-                    quotes = select_pairs(request('tokens/v1/' + chain + '/' + ','.join(batch)), set(batch), time.time(), chain)
+                    response = request('latest/dex/tokens/' + ','.join(batch))
+                    if not isinstance(response, dict):
+                        raise ValueError('Invalid pool response')
+                    quotes = select_pairs(response.get('pairs'), set(batch), time.time(), chain)
                     records.update({(chain, address): fields for address, fields in quotes.items()})
                 except (ValueError, OSError) as error:
                     self.error = 'Some quotes delayed: ' + type(error).__name__

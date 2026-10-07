@@ -19,7 +19,7 @@ class LookupTests(unittest.TestCase):
     def test_exact_address_case_is_preserved(self):
         calls = []
         rows = lookup_token(' ' + ADDRESS + ' ', fetch=lambda path: calls.append(path) or [pair()], verify_solana=lambda addresses: {})
-        self.assertEqual(calls, ['tokens/v1/solana/' + ADDRESS])
+        self.assertEqual(calls, ['token-pairs/v1/solana/' + ADDRESS])
         self.assertEqual(rows[0]['address'], ADDRESS)
         self.assertEqual(rows[0]['market_cap_usd'], 33000)
         self.assertIsNone(rows[0]['liquidity_usd'])

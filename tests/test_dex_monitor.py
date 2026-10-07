@@ -26,6 +26,28 @@ class DexMonitorTests(unittest.TestCase):
         self.assertEqual(result['price_usd'], 0.00000042)
         self.assertEqual(result['buy_count_m5'], 100)
 
+    def test_scanner_replaces_old_pool_with_active_pool(self):
+        from token_filters import DEFAULTS, matches
+        from token_lookup import lookup_token
+        old = dict(pair(), pairAddress='old-pool', marketCap=28363.41, liquidity=None)
+        active = dict(pair(28203.32, 140567), pairAddress='active-pool')
+        with tempfile.TemporaryDirectory() as directory:
+            store = DesktopStore(directory)
+            store.record('solana', ADDRESS, {'name': 'Fixture', 'market_pair': 'old-pool', 'market_cap_usd': 28363.41})
+            monitor = DexMonitor(TokenAlerts(store.connect), store.record, store.watchlist, store.tokens)
+            monitor.discovery_at = time.monotonic()
+            monitor.control(True)
+            with patch('dex_monitor.request', return_value={'pairs': [old, active]}) as fetch, patch('dex_monitor.solana_supplies', return_value={}):
+                monitor.poll()
+                fetch.assert_called_once_with('latest/dex/tokens/' + ADDRESS)
+            record = store.tokens()[0]
+            self.assertEqual(record['market_pair'], 'active-pool')
+            self.assertEqual(record['market_cap_usd'], 140567)
+            self.assertTrue(matches(record, DEFAULTS))
+            lookup = lookup_token(ADDRESS, fetch=lambda path: [old, active], verify_solana=lambda addresses: {})[0]
+            self.assertEqual(lookup['market_pair'], record['market_pair'])
+            self.assertEqual(lookup['market_cap_usd'], record['market_cap_usd'])
+
     def test_public_feed_to_store_and_stop(self):
         with tempfile.TemporaryDirectory() as directory:
             store = DesktopStore(Path(directory))
@@ -34,7 +56,7 @@ class DexMonitorTests(unittest.TestCase):
             monitor.control(True)
             sample = {'onchain_supply_sampled_at': time.time(), 'onchain_decimals': 9, 'onchain_supply': 1000}
             def response(path):
-                return [pair()] if path.startswith('tokens/') else [{'chainId': 'solana', 'tokenAddress': ADDRESS}]
+                return {'pairs': [pair()]} if path.startswith('latest/dex/tokens/') else [{'chainId': 'solana', 'tokenAddress': ADDRESS}]
             with patch('dex_monitor.request', side_effect=response) as request, patch('dex_monitor.solana_supplies', return_value={ADDRESS: sample}):
                 monitor.poll()
                 self.assertEqual(len(store.tokens()), 1)
