@@ -19,6 +19,7 @@ from data_quality import current_cap, current_value, mint_status
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
 from dex_monitor import DexMonitor
+from wallet_ingestion import WalletIngestion
 from desktop_credentials import load_key, save_key
 from cielo_client import CieloClient
 from kolscan_directory import bundled_wallets, read_wallets, SOURCE, CAPTURED
@@ -90,7 +91,7 @@ class TokenTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             record = self.records[index.row()]
             if index.column() == 0:
-                return record.get('name', '') + '\n' + record['address']
+                return record.get('name', '') + '\n' + record.get('address', record.get('wallet', ''))
             if self.headings[index.column()] == 'Market cap':
                 return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
             if self.headings[index.column()] == 'Net 5m':
@@ -246,6 +247,7 @@ class DesktopWindow(QMainWindow):
         self.store = store
         self.alerts = TokenAlerts(store.connect)
         self.monitor = DexMonitor(self.alerts, store.record, store.watchlist, store.tokens, key=load_key(store.directory))
+        self.ingestion = WalletIngestion(store)
         self.stop = threading.Event()
         self.background = background
         self.pending_store = queue.Queue()
@@ -464,6 +466,21 @@ class DesktopWindow(QMainWindow):
         self.cielo_signals.error.connect(self.cielo_feed_error, Qt.ConnectionType.QueuedConnection)
         self.cielo_busy = False
         self.cielo_tab = self.tabs.addTab(feed_page, 'Wallet activity')
+        chain_activity = QWidget()
+        activity_box = QVBoxLayout(chain_activity)
+        self.wallet_status = QLabel()
+        self.wallet_status.setWordWrap(True)
+        activity_box.addWidget(self.wallet_status)
+        activity_intro = QLabel('Watch a Solana token and start monitoring to collect its selected pool transactions. This preview shows finalized signer token balance changes. Transfers and deposits can appear here; buy/sell decoding and bot classification are not yet available. Initial history is limited to 100 transactions per pool.')
+        activity_intro.setWordWrap(True)
+        activity_box.addWidget(activity_intro)
+        self.wallet_table = QTableView()
+        self.wallet_table.setModel(TokenTableModel(['Time', 'Wallet', 'Token', 'Token change', 'Classification', 'Transaction'], self.wallet_table))
+        self.wallet_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.wallet_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.wallet_table.doubleClicked.connect(self.open_wallet_transaction)
+        activity_box.addWidget(self.wallet_table, 1)
+        self.tabs.addTab(chain_activity, 'On-chain activity')
         mcp_page = QWidget()
         mcp_box = QVBoxLayout(mcp_page)
         mcp_box.setSpacing(16)
@@ -579,6 +596,7 @@ class DesktopWindow(QMainWindow):
         self.timer.start(2000)
         if background:
             threading.Thread(target=self.worker, daemon=True).start()
+            threading.Thread(target=self.wallet_worker, daemon=True).start()
             threading.Thread(target=self.snapshot_worker, daemon=True).start()
         self.refresh()
 
@@ -595,6 +613,17 @@ class DesktopWindow(QMainWindow):
         if session != self.saved_session:
             self.saved_session = session
             self.save_setting('session', session)
+
+    def wallet_worker(self):
+        while not self.stop.wait(1):
+            try:
+                self.ingestion.poll(lambda: not self.stop.is_set() and self.monitor.status()['enabled'])
+            except Exception as error:
+                self.ingestion.state['error'] = 'Wallet collection delayed: ' + type(error).__name__
+
+    def open_wallet_transaction(self, index):
+        record = self.wallet_table.model().records[index.row()]
+        QDesktopServices.openUrl(QUrl('https://solscan.io/tx/' + record['signature']))
 
     def save_setting(self, key, value):
         self.run_store(self.store.set, key, value)
@@ -614,6 +643,7 @@ class DesktopWindow(QMainWindow):
                     if self.stop.is_set():
                         return
                 snapshot = {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
+                snapshot['wallet_activity'] = self.ingestion.snapshot()
                 self.store.set('mcp_runtime', {'sampled_at': time.time(), 'monitoring': bool(self.monitor.status()['enabled'])})
                 self.store_signals.snapshot.emit(snapshot)
             except Exception as error:
@@ -700,6 +730,10 @@ class DesktopWindow(QMainWindow):
         self.status_label.setToolTip(str(state['checked']) + ' measured flow samples. ' + str(state['skipped']) + ' unavailable flow samples. Last successful response: ' + stamp(state.get('last_success_at')))
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
+        activity = snapshot.get('wallet_activity', {}) if self.background else self.ingestion.snapshot()
+        ingestion_state, counts = activity.get('status', {}), activity.get('counts', {})
+        self.wallet_status.setText(str(ingestion_state.get('pools', 0)) + ' watched pools · ' + str(counts.get('complete', 0)) + ' collected · ' + str(counts.get('pending', 0)) + ' queued · ' + str(counts.get('failed', 0)) + ' failed transactions · Last collection: ' + stamp(ingestion_state.get('sampled_at')) + (' · ' + ingestion_state['error'] if ingestion_state.get('error') else ''))
+        self.wallet_table.model().replace(activity.get('events', []), lambda row: [stamp(row['block_time']), row['wallet'], row['mint'], row['delta'], row['classification'], row['signature']])
         tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000 and (current_value(r, 'liquidity_usd', 'statistics_sampled_at') or 0) >= 10000]
         connected = bool(self.monitor.client.key)
         self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum with $10,000 liquidity. Waiting for data.' if not tokens else '')
@@ -925,6 +959,7 @@ class DesktopWindow(QMainWindow):
         if self.quitting:
             return
         self.quitting = True
+        self.timer.stop()
         self.stop_monitor()
         self.tray.hide()
         if self.background:
