@@ -3,7 +3,7 @@ WORKDIR /app
 RUN apk add --no-cache font-dejavu
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY launch.mjs burns.mjs scan.mjs xray.mjs bundle-index.mjs crews.mjs wallet.mjs council.mjs record.mjs feed.mjs pons.mjs pons-abi.json server.mjs admin.mjs bot.mjs ./
+COPY launch.mjs burns.mjs scan.mjs xray.mjs bundle-index.mjs crews.mjs wallet.mjs cup.mjs council.mjs record.mjs feed.mjs pons.mjs pons-abi.json server.mjs admin.mjs bot.mjs ./
 COPY bot ./bot
 RUN mkdir -p /data && chown node:node /data
 USER node

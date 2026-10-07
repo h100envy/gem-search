@@ -9,6 +9,7 @@ import { scanToken } from './scan.mjs';
 import { buildLaunchTx, client as ponsClient, parseLaunchReceipt, quoteMinTokensOut, readTerms } from './pons.mjs';
 import { imageMatches } from './launch.mjs';
 import { walletHoldings } from './wallet.mjs';
+import { createCup } from './cup.mjs';
 import { createCouncil, factsOf } from './council.mjs';
 import { checkVerdicts, initRecord, recordVerdict, trackRecord } from './record.mjs';
 import { xrayToken } from './xray.mjs';
@@ -369,6 +370,9 @@ async function ponsConfirm(body) {
   return { status: 'live', token: l.token, curve: l.curve };
 }
 
+// --- Launch Cup ---------------------------------------------------------------------------------------------------
+const cup = createCup({ conn: conn ?? null, log: LOG, dir: dirname(LOG), prizes: env('CUP_PRIZES', '50,20,10').split(',').map(Number) });
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -421,6 +425,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
     if (req.method === 'POST' && url.pathname === '/v1/pons/prepare') return send(200, await ponsPrepare(req, await readJson(req, 3_000_000)));
     if (req.method === 'POST' && url.pathname === '/v1/pons/confirm') return send(200, await ponsConfirm(await readJson(req, 4_000)));
+    if (req.method === 'GET' && url.pathname === '/v1/cup') { if (!conn) throw new LaunchError(503, 'not switched on yet'); return send(200, await cup()); }
     if (req.method === 'GET' && url.pathname === '/v1/record') return send(200, councilRecord());
     if (req.method === 'POST' && url.pathname === '/v1/roast-bag') return send(200, await roastBag(req, await readJson(req, 8_000)));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/roast/')) return send(200, await roastCoin(req, decodeURIComponent(url.pathname.slice(10)).trim()));
