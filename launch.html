@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Launch a coin — Gem Search</title>
-<meta name="description" content="Launch a coin on pump.fun from gemsearch.fun. Your wallet signs, the coin is yours, Gem Search takes 0% and never sees a key.">
+<meta name="description" content="Launch a coin on pump.fun (Solana) or pons (Robinhood Chain) from gemsearch.fun. Your wallet signs, the coin is yours, Gem Search takes 0% and never sees a key.">
 <meta property="og:title" content="Launch a coin on pump.fun — Gem Search">
 <meta property="og:description" content="Your wallet signs. Your coin. 0% to us, no key ever leaves your browser.">
 <meta property="og:image" content="og.jpg">
@@ -339,7 +339,8 @@ $('dexgo').addEventListener('click', (e) => { if (!$('dexgo').href) { e.preventD
 const RH = { chainId: '0x1237', chainName: 'Robinhood Chain', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'], blockExplorerUrls: ['https://robinhoodchain.blockscout.com'] };
 let net = 'sol', evm = null, taxPct = 1;
 $('taxchips').addEventListener('click', (e) => { const t = e.target.dataset?.t; if (t === undefined) return; taxPct = Number(t); document.querySelectorAll('#taxchips .chip').forEach((c) => c.classList.toggle('on', c.dataset.t === t)); render(); });
-if (new URLSearchParams(location.search).get('net') === 'robinhood') { $('netseg').hidden = false; setNet('rh'); }
+$('netseg').hidden = false;
+if (new URLSearchParams(location.search).get('net') === 'robinhood') setNet('rh');
 $('netseg').addEventListener('click', (e) => { const n = e.target.dataset?.n; if (n && !busy) setNet(n); });
 function setNet(n) {
   net = n; wallet = null; provider = null;
