@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableMo
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget, QPlainTextEdit
 from market_metrics import current_flow
-from token_filters import DEFAULTS, matches, sort_key
+from token_filters import DEFAULTS, matches, sort_key, activity_values, filter_summary
 from filter_dialog import FilterDialog
 from chains import EVM
 from data_quality import current_cap, current_value, mint_status
@@ -97,6 +97,8 @@ class TokenTableModel(QAbstractTableModel):
                 return 'Indexed five-minute buy volume minus sell volume. Not transfers or liquidity deposits.\nSampled: ' + stamp(record.get('flow_updated_at'))
             if self.headings[index.column()] == 'Check':
                 return 'Token account, supply and decimals only; does not verify USD price or market cap.\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
+            if self.headings[index.column()].startswith('B/S '):
+                return 'Buy / sell transaction counts over ' + self.headings[index.column()][4:] + '\nSampled: ' + stamp(record.get('statistics_sampled_at'))
             return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.ForegroundRole and self.headings[index.column()] == 'Net 5m':
             flow = current_flow(self.records[index.row()])
@@ -370,6 +372,9 @@ class DesktopWindow(QMainWindow):
                 search_controls.addWidget(self.filter_button)
                 box.addLayout(search_controls)
                 box.addWidget(self.filter_panel)
+                self.filter_summary_label = QLabel()
+                self.filter_summary_label.setWordWrap(True)
+                box.addWidget(self.filter_summary_label)
             if name == 'Saved tokens':
                 history_notice = QLabel('Saved history from earlier versions. These values are historical provider data, excluded from live results and new alerts.')
                 history_notice.setWordWrap(True)
@@ -708,10 +713,24 @@ class DesktopWindow(QMainWindow):
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
-        minimum = self.minimum_cap.currentData()
-        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (current_cap(r) is not None and current_cap(r) >= minimum)) and (not self.confirmed_only.isChecked() or mint_status(r) == 'confirmed') and matches(r, self.applied_filters)]
+        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and matches(r, self.applied_filters)]
         filtered.sort(key=lambda r: sort_key(r, self.applied_filters))
-        values = lambda r: [r['name'], EVM[r['chain']][3] if r['chain'] in EVM else 'SOL', price(current_value(r, 'price_usd', 'price_sampled_at')), self.cap_cell(r), compact(current_value(r, 'volume_h24_usd', 'statistics_sampled_at')), compact(current_value(r, 'volume_m5_usd', 'statistics_sampled_at')), compact(current_flow(r)), (str(int(r['buy_count_m5'])) + ' / ' + str(int(r['sell_count_m5']))) if current_value(r, 'buy_count_m5', 'statistics_sampled_at') is not None and current_value(r, 'sell_count_m5', 'statistics_sampled_at') is not None else 'Unavailable', compact(current_value(r, 'liquidity_usd', 'statistics_sampled_at')), self.valuation_cell(r), time.strftime('%H:%M:%S', time.localtime(r['market_cap_updated_at']))]
+        timeframe = self.applied_filters.get('timeframe', 'h24')
+        label = {'m5': '5M', 'h1': '1H', 'h6': '6H', 'h24': '24H'}[timeframe]
+        self.filter_summary_label.setText(filter_summary(self.applied_filters, len(filtered)))
+        self.filter_button.setText('Filters (' + str(len(filtered)) + ')')
+        for name in ['Live tokens', 'Watchlist']:
+            model = self.tables[name].model()
+            headings = list(model.headings)
+            headings[4], headings[5], headings[7] = 'Vol ' + label, 'Change ' + label, 'B/S ' + label
+            if model.headings != headings:
+                model.headings = headings
+                model.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, model.columnCount() - 1)
+        def values(record):
+            activity = activity_values(record, timeframe)
+            counts = str(int(activity['buys'])) + ' / ' + str(int(activity['sells'])) if activity['buys'] is not None and activity['sells'] is not None else 'Unavailable'
+            change = '{:+.2f}%'.format(activity['change']) if activity['change'] is not None else 'Unavailable'
+            return [record['name'], EVM[record['chain']][3] if record['chain'] in EVM else 'SOL', price(current_value(record, 'price_usd', 'price_sampled_at')), self.cap_cell(record), compact(activity['volume']), change, compact(current_flow(record)), counts, compact(current_value(record, 'liquidity_usd', 'statistics_sampled_at')), self.valuation_cell(record), time.strftime('%H:%M:%S', time.localtime(record['market_cap_updated_at']))]
         self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in filtered if (r['chain'], r['address']) in watched], values)
@@ -739,7 +758,6 @@ class DesktopWindow(QMainWindow):
             self.applied_filters = dialog.result_settings
             self.save_setting('token_filters', self.applied_filters)
             self.pages['Live tokens'] = self.pages['Watchlist'] = 0
-            self.filter_button.setText('Filters · applied')
             self.refresh()
 
     def filter_changed(self):

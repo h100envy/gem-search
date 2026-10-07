@@ -7,6 +7,31 @@ DEFAULTS = {'liquidity_min': 10000, 'cap_min': 40000, 'timeframe': 'h24', 'sort'
 RANGES = [('liquidity', 'Liquidity ($)'), ('cap', 'Market cap ($)'), ('fdv', 'FDV ($)'), ('age', 'Pair age (hours)'), ('transactions', 'Transactions'), ('buys', 'Buys'), ('sells', 'Sells'), ('volume', 'Volume ($)'), ('change', 'Price change (%)')]
 
 
+def activity_values(record, timeframe):
+    values = {}
+    for key, prefix, suffix in [('volume', 'volume_', '_usd'), ('buys', 'buy_count_', ''), ('sells', 'sell_count_', ''), ('change', 'price_change_', '_pct')]:
+        value = record.get(prefix + timeframe + suffix)
+        values[key] = value if type(value) in (int, float) and math.isfinite(value) and fresh(record.get('statistics_sampled_at')) and (key == 'change' or value >= 0) else None
+    return values
+
+
+def filter_summary(settings, count):
+    parts = [{'m5': '5M', 'h1': '1H', 'h6': '6H', 'h24': '24H'}.get(settings.get('timeframe'), '24H')]
+    if settings.get('chain'):
+        parts.append(settings['chain'].capitalize())
+    if settings.get('dex'):
+        parts.append(settings['dex'])
+    for key, label in RANGES:
+        for bound, operator in [('min', '>='), ('max', '<=')]:
+            value = settings.get(key + '_' + bound)
+            if value is not None:
+                parts.append(label + ' ' + operator + ' ' + format(value, ',g'))
+    for key, label in [('confirmed_only', 'Verified accounts'), ('boosted_only', 'Boosted pairs'), ('suffixes', 'Suffixes'), ('labels', 'Labels')]:
+        if settings.get(key):
+            parts.append(label + (': ' + settings[key] if isinstance(settings[key], str) else ''))
+    return ' | '.join(parts) + ' | ' + str(count) + ' matching tokens'
+
+
 def matches(record, settings, now=None):
     now = time.time() if now is None else now
     timeframe = settings.get('timeframe', 'h24')

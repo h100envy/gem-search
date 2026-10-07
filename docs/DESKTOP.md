@@ -31,3 +31,5 @@ Proprietary trending scores, trader counts, ads and profile filters are not incl
 ![Example filter editor](desktop-filters.png)
 
 The Chain filter selects one network or all supported networks. Live tables identify each network, and Explorer opens its token explorer. EVM watchlist addresses are normalized while token identity remains network plus address. EVM checks validate RPC chain ID, deployed contract code, totalSupply and decimals at a recorded block. These reads do not establish circulating supply, price accuracy, finality, safety or net inflow. Verification refreshes up to 20 EVM contracts per cycle with networks rotated; unavailable or unrefreshed checks remain pending. Market quotes retain the existing refresh and sampling limits.
+
+The table volume, price change and buy/sell counts now use the timeframe selected in Filters. Headers show that window explicitly. The filter summary shows active bounds and the matching token count before pagination. Applying filters updates both live and watchlist results immediately and retains them through refreshes and reopening.
