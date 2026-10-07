@@ -2,12 +2,14 @@
 
 ## Windows token monitor
 
+This standalone desktop project builds on [h100envy/gem-search](https://github.com/h100envy/gem-search). Original history and MIT licensing are preserved. The earlier fork and historical downloads remain available at [gem-search](https://github.com/nightangelflowerwin-ops/gem-search).
+
 The Windows app includes a read-only MCP connection for compatible assistants. Anyone can connect their own local app using Assistant connection in the sidebar. See [MCP setup and tools](docs/MCP.md).
 
-The desktop app provides a workspace for tokens, watchlists, saved records and notification controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows preview from [Releases](https://github.com/nightangelflowerwin-ops/gem-search/releases). See [desktop usage](docs/DESKTOP.md) for setup and limitations.
+The desktop app provides a workspace for tokens, watchlists, saved records and notification controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows preview from [Releases](https://github.com/nightangelflowerwin-ops/gem-search-desktop/releases). See [desktop usage](docs/DESKTOP.md) for setup and limitations.
 
 <p align="center">
-  <a href="https://github.com/h100envy/gem-search/actions/workflows/ci.yml"><img src="https://github.com/h100envy/gem-search/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
+  <a href="https://github.com/nightangelflowerwin-ops/gem-search-desktop/actions/workflows/ci.yml"><img src="https://github.com/nightangelflowerwin-ops/gem-search-desktop/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
   <img src="https://img.shields.io/badge/Chrome-Manifest_V3-ff95b1?labelColor=191922" alt="Chrome Manifest V3">
   <img src="https://img.shields.io/badge/local-first-91e5c7?labelColor=191922" alt="Local first">
   <img src="https://img.shields.io/badge/Grok-4_perspectives-bca4ff?labelColor=191922" alt="Four optional Grok reviewers">
