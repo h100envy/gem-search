@@ -90,7 +90,7 @@ def create_server(directory):
             raise ToolError('Use a short search and a finite nonnegative minimum market cap.')
         records = reader.tokens()
         if scope != 'saved':
-            records = [r for r in records if r.get('data_source') in ('Solscan', 'DexScreener')]
+            records = [r for r in records if r.get('data_source') in ('Solscan', 'DexScreener') and (current_value(r, 'liquidity_usd', 'statistics_sampled_at') or 0) > 0]
         if scope == 'watchlist':
             watched = {(r['chain'], r['address']) for r in reader.rows('SELECT chain,address FROM desktop_watchlist')}
             records = [r for r in records if (r['chain'], r['address']) in watched]

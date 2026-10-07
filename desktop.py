@@ -691,9 +691,9 @@ class DesktopWindow(QMainWindow):
         self.status_label.setToolTip(str(state['checked']) + ' measured flow samples. ' + str(state['skipped']) + ' unavailable flow samples. Last successful response: ' + stamp(state.get('last_success_at')))
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
-        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000]
+        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000 and (current_value(r, 'liquidity_usd', 'statistics_sampled_at') or 0) > 0]
         connected = bool(self.monitor.client.key)
-        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum. Waiting for data.' if not tokens else '')
+        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum with positive liquidity. Waiting for data.' if not tokens else '')
         self.connection_notice.setVisible(not connected or not tokens or bool(state['error']))
         feed_errors = [state.get(k) for k in ('error', 'ranking_error', 'flow_error') if state.get(k)]
         if feed_errors:
@@ -988,7 +988,7 @@ def main():
         from desktop_checks import run_responsiveness_check
         check_timer = run_responsiveness_check(application, window, store, args.responsiveness_test)
     if args.smoke_test:
-        store.record('base', '0x' + 'a' * 40, {'data_source': 'DexScreener', 'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'market_cap_updated_at': time.time(), 'price_usd': 0.000042, 'price_sampled_at': time.time(), 'net_inflow_m5_usd': 125000, 'flow_method': 'indexed_buy_minus_sell_5m', 'flow_updated_at': time.time()})
+        store.record('base', '0x' + 'a' * 40, {'data_source': 'DexScreener', 'name': 'Fixture token · test data', 'liquidity_usd': 10000, 'statistics_sampled_at': time.time(), 'market_cap_usd': 42000, 'market_cap_updated_at': time.time(), 'price_usd': 0.000042, 'price_sampled_at': time.time(), 'net_inflow_m5_usd': 125000, 'flow_method': 'indexed_buy_minus_sell_5m', 'flow_updated_at': time.time()})
         store.watch('base', '0x' + 'a' * 40)
         window.alerts.evaluate('base', '0x' + 'a' * 40, {'net_inflow_m5_usd': 125000})
         store.record('solana', 'historical-fixture', {'name': 'Historical fixture', 'market_cap_usd': 50000, 'market_cap_source': 'Legacy fixture'})

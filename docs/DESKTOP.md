@@ -21,3 +21,5 @@ The current preview uses a public market feed without requiring a key. Quotes ar
 The live table shows price, market capitalization, five-minute and 24-hour pair volume, five-minute buy and sell counts, liquidity and mint verification. Tokens below $40,000 or with stale or missing market capitalization are excluded. Mint checks verify the account and supply, not the USD price.
 
 The public feed does not provide separate buy and sell USD totals or a one-minute trading window. Net inflow alerts and the early-launch market capitalization alert remain unavailable in this preview. Pair creation time is not treated as token creation time.
+
+Live results and watchlists exclude tokens with zero, missing, invalid or stale liquidity. Saved historical records remain accessible. The same liquidity requirement applies to MCP live and watchlist listings.
