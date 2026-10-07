@@ -56,7 +56,7 @@ class DesktopStore:
 
     def watch(self, chain, address):
         if not re.fullmatch(r'[a-z0-9_-]{1,40}', chain) or not re.fullmatch(r'[A-Za-z0-9:_-]{2,128}', address):
-            raise ValueError('Enter a GeckoTerminal network ID and a token address')
+            raise ValueError('Enter a network ID and a token address')
         with self.connect() as con:
             if con.execute('SELECT COUNT(*) FROM desktop_watchlist').fetchone()[0] >= 20:
                 raise ValueError('This release supports 20 watched tokens')

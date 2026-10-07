@@ -9,7 +9,7 @@ def seed_responsiveness_data(store):
     rows = []
     for index in range(2000):
         address = '0x' + format(index, '040x')
-        payload = {'chain': 'base', 'address': address, 'name': 'Fixture token ' + str(index), 'first_seen': time.time(), 'market_cap_usd': 40000 + index, 'market_cap_source': 'Fixture provider', 'market_cap_updated_at': time.time(), 'net_inflow_m5_usd': index * 100, 'flow_updated_at': time.time()}
+        payload = {'chain': 'base', 'address': address, 'data_source': 'Solscan', 'name': 'Fixture token ' + str(index), 'first_seen': time.time(), 'market_cap_usd': 40000 + index, 'market_cap_source': 'Fixture provider', 'market_cap_updated_at': time.time(), 'net_inflow_m5_usd': index * 100, 'flow_updated_at': time.time()}
         rows.append(('base', address, time.time(), json.dumps(payload)))
     with store.connect() as con:
         con.executemany('INSERT OR REPLACE INTO desktop_tokens VALUES (?,?,?,?)', rows)

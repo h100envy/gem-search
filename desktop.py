@@ -12,7 +12,8 @@ from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopSer
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
-from token_monitor import TokenMonitor
+from solscan_monitor import SolscanMonitor
+from desktop_credentials import load_key, save_key
 
 
 def icon():
@@ -69,8 +70,8 @@ class TokenTableModel(QAbstractTableModel):
                 return record.get('name', '') + '\n' + record['address']
             if self.headings[index.column()] == 'Reported market cap':
                 return str(record.get('market_cap_source', 'Not sampled')) + '\nSampled: ' + stamp(record.get('market_cap_updated_at'))
-            if self.headings[index.column()] == 'Supply valuation (FD)':
-                return str(record.get('onchain_valuation_method', 'Not sampled')) + '\nPrice source: ' + str(record.get('onchain_price_source') or 'Not sampled') + '\nSampled: ' + stamp(record.get('onchain_valuation_sampled_at'))
+            if self.headings[index.column()] == 'Chain verification':
+                return str(record.get('verification_status', 'Pending mint verification')) + '\nPrice source: ' + str(record.get('price_source') or 'Not sampled') + '\nSampled: ' + stamp(record.get('onchain_supply_sampled_at'))
             return self.cells[index.row()][index.column()]
         if role == Qt.ItemDataRole.UserRole:
             return self.records[index.row()]
@@ -100,7 +101,7 @@ class DesktopWindow(QMainWindow):
         super().__init__()
         self.store = store
         self.alerts = TokenAlerts(store.connect)
-        self.monitor = TokenMonitor(self.alerts, store.record, store.watchlist, store.tokens)
+        self.monitor = SolscanMonitor(self.alerts, store.record, store.watchlist, store.tokens, key=load_key(store.directory))
         self.stop = threading.Event()
         self.background = background
         self.pending_store = queue.Queue()
@@ -181,7 +182,7 @@ class DesktopWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search token name, chain or address')
         self.search.textChanged.connect(self.filter_changed)
-        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Supply valuation (FD)', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Supply valuation (FD)', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled'])]:
+        for name, headings in [('Live tokens', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled']), ('Triggered alerts', ['Time', 'Chain', 'Token address', 'Trigger', 'Value']), ('Watchlist', ['Token / address', 'Chain', 'Chain verification', 'Reported market cap', 'Net inflow · 5m', 'Flow sampled'])]:
             page = QWidget()
             box = QVBoxLayout(page)
             box.setContentsMargins(10, 8, 10, 8)
@@ -214,7 +215,7 @@ class DesktopWindow(QMainWindow):
                 watch.clicked.connect(lambda checked=False, target=table, add=name == 'Live tokens': self.watch_selected(target, add))
                 actions.addWidget(copy)
                 actions.addWidget(watch)
-                market = QPushButton('Chart')
+                market = QPushButton('Open token')
                 market.clicked.connect(lambda checked=False, target=table: self.open_market(target))
                 actions.addWidget(market)
                 explorer = QPushButton('Solscan')
@@ -241,13 +242,21 @@ class DesktopWindow(QMainWindow):
         self.notifications.setChecked(store.get('notifications', True))
         self.notifications.toggled.connect(lambda value: self.save_setting('notifications', value))
         settings.addWidget(self.notifications)
-        settings.addWidget(QLabel('VALUATION\nSolana mint supply comes directly from the chain at confirmed commitment.\nSupply valuation (FD) uses minted supply multiplied by the selected pool USD price.\nPrice is supplied by DexScreener; circulating supply is not verified.\nReported market cap is separate. Samples older than three minutes are marked stale.\nWatched tokens refresh each poll; saved tokens refresh in rotating batches.\nThe Solscan button opens the selected Solana token for direct comparison.'))
+        settings.addWidget(QLabel('SOLSCAN CONNECTION\nAll token data comes from Solscan. Direct blockchain reads verify mint identity and decimals.\nSolscan price and market cap remain provider data, not independently verified prices.'))
+        self.solscan_key = QLineEdit()
+        self.solscan_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.solscan_key.setPlaceholderText('Enter your Solscan Pro API key locally')
+        settings.addWidget(self.solscan_key)
+        connect = QPushButton('Save Solscan connection')
+        connect.clicked.connect(self.connect_solscan)
+        settings.addWidget(connect)
         test = QPushButton('Test desktop notification')
         test.clicked.connect(self.test_notification)
         settings.addWidget(test)
         settings.addWidget(QLabel('ADD A WATCHED TOKEN'))
         self.chain_input = QLineEdit()
-        self.chain_input.setPlaceholderText('GeckoTerminal network ID: solana, eth, base, bsc…')
+        self.chain_input.setText('solana')
+        self.chain_input.setReadOnly(True)
         self.address_input = QLineEdit()
         self.address_input.setPlaceholderText('Token contract address')
         settings.addWidget(self.chain_input)
@@ -255,7 +264,7 @@ class DesktopWindow(QMainWindow):
         add = QPushButton('Add token to watchlist')
         add.clicked.connect(self.add_watch)
         settings.addWidget(add)
-        settings.addWidget(QLabel('COVERAGE\nDiscovery samples the latest 20 GeckoTerminal pools across supported networks.\nNet inflow is calculated from complete indexed swap samples. Missing data stays unavailable.\nPool creation time and fully diluted valuation are not used as token age or market cap.\nThe $40k launch rule is not automatically active without token creation data.'))
+        settings.addWidget(QLabel('COVERAGE\nSolana only. Discovery samples the latest 20 Solscan tokens per minute.\nExisting watchlists and alert history are retained. Legacy provider tokens are hidden from live results.\nThe $40k rule uses Solscan token creation time and market cap after mint verification.\nNet inflow alerts are pending validation of Solscan swap direction and historical USD amounts.\nNo other provider is used as a fallback. API endpoint access depends on your Solscan plan.'))
         settings.addWidget(QLabel('Closing this window keeps monitoring in the system tray. Quit stops monitoring.\nUntil I stop and timed deadlines are retained when the app is reopened.\nMonitoring cannot run while your computer is asleep or powered off.'))
         settings.addWidget(QLabel('Local data: ' + str(store.directory)))
         settings.addStretch()
@@ -370,10 +379,10 @@ class DesktopWindow(QMainWindow):
 
     def refresh(self):
         state = self.monitor.status()
-        self.status_label.setText(('MONITORING' if state['enabled'] else 'STOPPED') + ' · ' + str(state['checked']) + ' flow samples checked · ' + str(state['skipped']) + ' incomplete samples skipped' + (' · ' + state['error'] if state['error'] else '') + (' · ' + state.get('valuation_error', '') if state.get('valuation_error') else ''))
+        self.status_label.setText(('MONITORING' if state['enabled'] else 'STOPPED') + ' · ' + str(state['checked']) + ' flow samples checked · ' + str(state['skipped']) + ' inflow samples pending Solscan validation' + (' · ' + state['error'] if state['error'] else '') + (' · ' + state.get('valuation_error', '') if state.get('valuation_error') else ''))
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
-        tokens = snapshot['tokens']
+        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'Solscan']
         self.metrics['tokens'].setText(str(len(tokens)))
         self.metrics['alerts'].setText(str(len(snapshot['alerts'])))
         self.metrics['watched'].setText(str(len(snapshot['watchlist'])))
@@ -381,7 +390,7 @@ class DesktopWindow(QMainWindow):
         self.control_buttons['primary'].setEnabled(not state['enabled'])
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
-        values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), money(r.get('net_inflow_m5_usd')), stamp(r.get('flow_updated_at'))]
+        values = lambda r: [r['name'], r['chain'].upper(), self.valuation_cell(r), self.cap_cell(r), money(r.get('net_inflow_m5_usd')) if r.get('net_inflow_m5_usd') is not None else 'Pending validation', stamp(r.get('flow_updated_at'))]
         self.fill_table(self.tables['Live tokens'], [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower()], values)
         watched = set(snapshot['watchlist'])
         self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
@@ -422,13 +431,8 @@ class DesktopWindow(QMainWindow):
         return money(value) + (' · STALE' if time.time() - sampled > 180 else '')
 
     def valuation_cell(self, record):
-        if record['chain'] != 'solana':
-            return 'Solana only'
-        value = record.get('onchain_valuation_usd')
-        if value is None:
-            return 'Waiting for supply + price'
-        sampled = record.get('onchain_valuation_sampled_at') or 0
-        return money(value) + (' · STALE' if time.time() - sampled > 180 else '')
+        status = record.get('verification_status', 'Pending mint verification')
+        return ('Confirmed mint' if status.startswith('Mint and decimals confirmed') else 'Mismatch' if 'differ' in status else 'Pending') + (' · STALE' if time.time() - (record.get('onchain_supply_sampled_at') or 0) > 180 else '')
 
     def open_explorer(self, table):
         record = self.selected(table)
@@ -443,9 +447,20 @@ class DesktopWindow(QMainWindow):
             QApplication.clipboard().setText(record['address'])
 
     def open_market(self, table):
-        record = self.selected(table)
-        if record:
-            QDesktopServices.openUrl(QUrl('https://www.geckoterminal.com/' + quote(record['chain'], safe='') + '/tokens/' + quote(record['address'], safe='')))
+        self.open_explorer(table)
+
+    def connect_solscan(self):
+        key = self.solscan_key.text().strip()
+        if not key:
+            QMessageBox.information(self, 'Solscan connection', 'Enter your API key locally in Settings.')
+            return
+        try:
+            save_key(self.store.directory, key)
+            self.monitor.set_key(key)
+            self.solscan_key.clear()
+            self.status_label.setText('Solscan credential saved securely on this Windows account. Start monitoring to check access.')
+        except (ValueError, OSError) as error:
+            QMessageBox.information(self, 'Solscan connection', str(error))
 
     def watch_selected(self, table, add):
         record = self.selected(table)
@@ -469,7 +484,7 @@ class DesktopWindow(QMainWindow):
         if row < 0 or row >= table.model().rowCount():
             return
         record = table.model().records[row]
-        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Reported market cap: ' + money(record.get('market_cap_usd')), 'Reported provider: ' + record.get('market_cap_source', 'Not sampled'), 'Reported cap sampled: ' + stamp(record.get('market_cap_updated_at')), 'Supply valuation (FD): ' + money(record.get('onchain_valuation_usd')), 'Minted supply: ' + record.get('onchain_supply', 'Not sampled'), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'USD price used: ' + record.get('onchain_price_usd', 'Not sampled'), 'Price provider: ' + str(record.get('onchain_price_source') or 'Not sampled'), 'Price pool: ' + str(record.get('onchain_price_pool') or 'Not sampled'), 'Pool liquidity reported: ' + money(record.get('onchain_price_liquidity_usd')), 'Valuation sampled: ' + stamp(record.get('onchain_valuation_sampled_at')), 'Method: ' + record.get('onchain_valuation_method', 'Not sampled'), 'Net inflow over five minutes: ' + money(record.get('net_inflow_m5_usd'))]))
+        QMessageBox.information(self, record.get('name', 'Token details'), '\n\n'.join(['Network: ' + record['chain'], 'Address: ' + record['address'], 'Solscan market cap: ' + money(record.get('market_cap_usd')), 'Solscan price: ' + money(record.get('price_usd')), 'Sampled: ' + stamp(record.get('market_cap_updated_at')), 'Verification: ' + record.get('verification_status', 'Pending'), 'Confirmed minted supply: ' + str(record.get('onchain_supply', 'Not sampled')), 'Confirmed chain slot: ' + str(record.get('onchain_slot', 'Not sampled')), 'Verification sampled: ' + stamp(record.get('onchain_supply_sampled_at')), 'Token creation time from Solscan: ' + stamp(record.get('token_created_at')), 'Net inflow: pending Solscan swap validation']))
 
     def show_alert_history(self):
         self.tabs.setCurrentIndex(1)
@@ -568,7 +583,7 @@ def main():
         from desktop_checks import run_responsiveness_check
         check_timer = run_responsiveness_check(application, window, store, args.responsiveness_test)
     if args.smoke_test:
-        store.record('base', '0x' + 'a' * 40, {'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'net_inflow_m5_usd': 125000, 'flow_updated_at': time.time()})
+        store.record('base', '0x' + 'a' * 40, {'data_source': 'Solscan', 'name': 'Fixture token · test data', 'market_cap_usd': 42000, 'net_inflow_m5_usd': 125000, 'flow_updated_at': time.time()})
         store.watch('base', '0x' + 'a' * 40)
         window.alerts.evaluate('base', '0x' + 'a' * 40, {'net_inflow_m5_usd': 125000})
         window.refresh()
@@ -578,6 +593,7 @@ def main():
         window.search.setText('no-match')
         assert window.tables['Live tokens'].rowCount() == 0
         window.search.clear()
+        window.monitor.set_key('fixture-key-no-network')
         window.start_monitor()
         assert store.get('session')['enabled']
         window.stop_monitor()
