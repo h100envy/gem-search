@@ -113,6 +113,9 @@ footer{border-top:1px solid rgba(255,255,255,.07);padding:30px 0 50px;color:var(
 <script>
 const API = 'https://api.gemsearch.fun';
 const $ = (id) => document.getElementById(id);
+// Ticker names are whatever launchers type; slurs are masked, not shown.
+const BAD = /n[i1!]gg|f[a@]gg?ot|retard|k[i1]ke|chink|spic\b|tranny|hitler|nazi|rape|cunt/i;
+const clean = (s) => (BAD.test(String(s ?? '')) ? '•••' : s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ago = (t) => { const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : Math.round(s / 3600) + 'h'; };
 const C = { bundled: '#ff8a1f', sniped: '#ffe81f', clean: '#4dff6a', unknown: '#3b3580' };
@@ -134,10 +137,10 @@ async function load() {
     $('bar').innerHTML = ['bundled', 'sniped', 'clean'].map((k) => `<i style="width:${(d.counts[k] / d.known) * 100}%;background:${C[k]}"></i>`).join('');
     $('legend').innerHTML = `<span style="--c:${C.bundled}">Bundled <b>${d.bundledPct}%</b></span><span style="--c:${C.sniped}">Sniped <b>${d.snipedPct}%</b></span><span style="--c:${C.clean}">Clean <b>${d.cleanPct}%</b></span>`;
     // feed: new rows animate in
-    $('feed').innerHTML = d.recent.slice(0, 18).map((x) => `<a class="row" href="scan?ca=${encodeURIComponent(x.mint)}" ${shown.has(x.mint) ? 'style="animation:none"' : ''}><span class="tag t-${x.verdict}">${x.verdict.toUpperCase()}</span><span class="n"><b>${esc(x.name || 'unnamed')}</b> <span class="mono">$${esc(x.symbol)}</span></span><span class="s mono">${x.sameSlot === null ? '—' : x.sameSlot + ' in block'}</span><span class="a mono">${ago(x.t)}</span></a>`).join('');
+    $('feed').innerHTML = d.recent.slice(0, 18).map((x) => `<a class="row" href="scan?ca=${encodeURIComponent(x.mint)}" ${shown.has(x.mint) ? 'style="animation:none"' : ''}><span class="tag t-${x.verdict}">${x.verdict.toUpperCase()}</span><span class="n"><b>${esc(clean(x.name) || 'unnamed')}</b> <span class="mono">$${esc(clean(x.symbol))}</span></span><span class="s mono">${x.sameSlot === null ? '—' : x.sameSlot + ' in block'}</span><span class="a mono">${ago(x.t)}</span></a>`).join('');
     d.recent.forEach((x) => shown.add(x.mint));
     $('upd').textContent = 'click any coin to X-ray it';
-    $('top').innerHTML = d.top.length ? d.top.slice(0, 10).map((x) => `<a href="scan?ca=${encodeURIComponent(x.mint)}"><span>${esc(x.name || 'unnamed')} <span class="mono" style="color:var(--cyan)">$${esc(x.symbol)}</span></span><b class="mono">${x.sameSlot} in block</b></a>`).join('') : '<div class="how">No bundled launch yet today.</div>';
+    $('top').innerHTML = d.top.length ? d.top.slice(0, 10).map((x) => `<a href="scan?ca=${encodeURIComponent(x.mint)}"><span>${esc(clean(x.name) || 'unnamed')} <span class="mono" style="color:var(--cyan)">$${esc(clean(x.symbol))}</span></span><b class="mono">${x.sameSlot} in block</b></a>`).join('') : '<div class="how">No bundled launch yet today.</div>';
     const max = Math.max(...d.hours.map((h) => h.checked), 1);
     $('hours').innerHTML = d.hours.map((h, i) => `<div title="${String(i).padStart(2, '0')}:00 UTC · ${h.checked} checked · ${h.checked ? Math.round((h.bundled / h.checked) * 100) : 0}% bundled" style="height:${(h.checked / max) * 100}%"><i style="height:${h.checked ? (h.bundled / h.checked) * 100 : 0}%"></i></div>`).join('');
     const db = d.devBuy, tot = Object.values(db).reduce((a, b) => a + b, 0) || 1;
