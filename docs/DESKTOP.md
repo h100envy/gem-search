@@ -15,3 +15,5 @@ The early market-cap rule uses Solscan market capitalization and Solscan token c
 The dark desktop has Google blue, red, yellow and green accents, fitted table pages, search, watchlists, local alerts and notifications. Windows notification delivery depends on system settings. The executable is an unsigned Windows x64 preview bundling Python and Qt. Download the ZIP for licenses.
 
 Build from source using requirements-desktop.txt and scripts/build_desktop.py. Run desktop.py --smoke-test PATH or --responsiveness-test PATH with a fresh --data-dir to test the local desktop workflow without network requests.
+
+Free API credentials are supported through Solscan documented playground/token/meta. When Pro discovery access is rejected, the app refreshes saved and watched Solana tokens through this free endpoint. It does not invent free discovery coverage. Add token addresses in Settings. Other providers remain excluded.

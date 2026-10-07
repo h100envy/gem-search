@@ -2,13 +2,41 @@ import json
 import time
 import unittest
 from unittest.mock import Mock, patch
-from solscan_monitor import SolscanClient, SolscanMonitor, metadata_fields
+from urllib.error import HTTPError
+from solscan_monitor import SolscanAccessError, SolscanClient, SolscanMonitor, metadata_fields
 
 
 ADDRESS = 'So11111111111111111111111111111111111111112'
 
 
 class SolscanTests(unittest.TestCase):
+    def test_free_key_routes_metadata_to_documented_free_endpoint(self):
+        response = Mock()
+        response.read.return_value = json.dumps({'success': True, 'data': {'address': ADDRESS}}).encode()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        client = SolscanClient('fake-key')
+        with patch('solscan_monitor.urlopen', side_effect=[HTTPError('https://pro-api.solscan.io/v2.0/token/meta', 401, '', {}, None), response, response]) as opened:
+            client.get('token/meta', address=ADDRESS)
+            client.get('token/meta', address=ADDRESS)
+        self.assertTrue(client.free_access)
+        self.assertTrue(opened.call_args_list[1].args[0].full_url.startswith('https://pro-api.solscan.io/playground/token/meta?'))
+        self.assertTrue(opened.call_args_list[2].args[0].full_url.startswith('https://pro-api.solscan.io/playground/token/meta?'))
+        with self.assertRaises(SolscanAccessError):
+            client.get('token/latest')
+
+    def test_saved_tokens_refresh_when_discovery_access_is_rejected(self):
+        client = Mock(key='fake-key', free_access=True)
+        client.get.side_effect = [SolscanAccessError(401, 'Discovery unavailable'), {'address': ADDRESS, 'decimals': 9, 'market_cap': 45000}]
+        observer, alerts = Mock(), Mock()
+        monitor = SolscanMonitor(alerts, observer, tracked=lambda: [{'chain': 'solana', 'address': ADDRESS, 'market_cap_source': 'Legacy'}], client=client)
+        monitor.control(True)
+        with patch('solscan_monitor.solana_supplies', return_value={}):
+            monitor.poll()
+        self.assertEqual(observer.call_args.args[2]['data_source'], 'Solscan')
+        self.assertIn('Free Solscan access connected', monitor.error)
+        alerts.evaluate.assert_not_called()
+
     def test_only_solscan_endpoint_with_header_credential(self):
         response = Mock()
         response.read.return_value = json.dumps({'success': True, 'data': []}).encode()

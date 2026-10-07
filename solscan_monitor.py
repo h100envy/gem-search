@@ -9,19 +9,36 @@ from urllib.request import Request, urlopen
 from onchain import solana_supplies
 
 
+class SolscanAccessError(ValueError):
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
 class SolscanClient:
     def __init__(self, key):
         self.key = key
+        self.free_access = False
 
     def get(self, endpoint, **params):
         if not self.key:
             raise ValueError('Connect Solscan in Settings before monitoring')
-        request = Request('https://pro-api.solscan.io/v2.0/' + endpoint + '?' + urlencode(params), headers={'token': self.key, 'Accept': 'application/json', 'User-Agent': 'GemSearch'})
+        if self.free_access and endpoint != 'token/meta':
+            raise SolscanAccessError(403, 'Free Solscan access: automatic token discovery unavailable')
+        return self.request(endpoint, params, self.free_access)
+
+    def request(self, endpoint, params, free=False):
+        base = 'https://pro-api.solscan.io/playground/' if free else 'https://pro-api.solscan.io/v2.0/'
+        request = Request(base + endpoint + '?' + urlencode(params), headers={'token': self.key, 'Accept': 'application/json', 'User-Agent': 'GemSearch'})
         try:
             with urlopen(request, timeout=8) as response:
                 raw = response.read(2000001)
         except HTTPError as error:
-            raise ValueError({401: 'Solscan rejected the API key', 403: 'Solscan endpoint access is not enabled for this account', 429: 'Solscan rate limit reached; retrying next minute'}.get(error.code, 'Solscan request failed (' + str(error.code) + ')')) from None
+            if error.code in (401, 403) and endpoint == 'token/meta' and not free:
+                result = self.request(endpoint, params, True)
+                self.free_access = True
+                return result
+            raise SolscanAccessError(error.code, {401: 'Solscan rejected access to this endpoint', 403: 'Solscan endpoint access is not enabled for this account', 429: 'Solscan rate limit reached; retrying next minute'}.get(error.code, 'Solscan request failed (' + str(error.code) + ')')) from None
         if len(raw) > 2000000:
             raise ValueError('Solscan response exceeds limit')
         result = json.loads(raw)
@@ -99,12 +116,18 @@ class SolscanMonitor:
         self.checked = self.skipped = 0
         self.error = self.valuation_error = None
         try:
-            latest = client.get('token/latest', page=1, page_size=20)
+            try:
+                latest = client.get('token/latest', page=1, page_size=20)
+            except SolscanAccessError as error:
+                if error.code not in (401, 403):
+                    raise
+                latest = []
+                self.error = 'Discovery access unavailable; refreshing saved and watched Solana tokens'
             if not isinstance(latest, list):
                 raise ValueError('Invalid Solscan discovery response')
             records = {item['address']: item for item in latest if isinstance(item, dict) and isinstance(item.get('address'), str)}
             watched = [address for chain, address in (self.watchlist() if self.watchlist else []) if chain == 'solana']
-            tracked = [item['address'] for item in (self.tracked() if self.tracked else []) if item.get('data_source') == 'Solscan']
+            tracked = [item['address'] for item in (self.tracked() if self.tracked else []) if item.get('chain') == 'solana']
             extra = list(dict.fromkeys(watched + tracked[self.offset:self.offset + 20]))
             self.offset = (self.offset + 20) % max(1, len(tracked))
             for address in extra:
@@ -114,6 +137,11 @@ class SolscanMonitor:
                 if not isinstance(item, dict) or item.get('address') != address:
                     raise ValueError('Solscan metadata address mismatch')
                 records[address] = item
+            if not records:
+                self.error = 'Add a Solana token address in Settings; discovery is unavailable on this access tier'
+                return
+            if client.free_access is True:
+                self.error = 'Free Solscan access connected; saved and watched tokens refresh, automatic discovery unavailable'
             if not self.active(generation):
                 return
             samples = {}
