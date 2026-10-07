@@ -11,7 +11,7 @@
 
 <h1 align="center">🕷️ Meet the curious side of your feed.</h1>
 <p align="center"><b>Your next research rabbit hole has eight legs.</b><br>A browser companion that turns the posts you see into questions worth asking.</p>
-<p align="center"><a href="#-launch-a-coin-from-gemsearchfun">Launchpad</a> · <a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
+<p align="center"><a href="#%EF%B8%8F-the-spider-on-the-web-tools-at-gemsearchfun">Tools</a> · <a href="#-launch-a-coin-from-gemsearchfun">Launchpad</a> · <a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
 
 <br>
 
@@ -24,6 +24,21 @@
 </table>
 
 <br>
+
+## 🕸️ The spider on the web: tools at gemsearch.fun
+
+Everything below is free, needs no wallet connection and runs on the open-source server in [`launchpad/`](https://github.com/h100envy/gem-search/tree/launchpad/launchpad).
+
+| Tool | What it does |
+| --- | --- |
+| **[Scanner](https://gemsearch.fun/scan)** | Paste any Solana contract address: mint and freeze authority, top 10 holders, the dev's share and earlier pump.fun launches, liquidity or curve progress, Dex profile, ticker clones. A score out of 100 with every reason; red flags first, and anything it could not read is *unknown*, never *safe*. Shareable card |
+| **Web X-ray** | Under every scan: a web of who really holds the coin. Wallets that bought in the launch block with the dev, wallets funded from one source, coins passed between holders. Verdict BUNDLE / LINKED WALLETS / NO LINKED WALLETS; every link opens its transaction |
+| **Bundle Crew** | The spider's memory across launches. Every pump.fun launch with buys in its launch block is recorded with who bought, who funded them and what the coin did an hour and a day later. When the same funders show up in a new coin, the scan shows that crew's earlier launches and how they ended. Memory started on October 7, 2026 |
+| **[Am I exit liquidity?](https://gemsearch.fun/me)** | Paste your own wallet: every memecoin in it is scanned and the largest positions X-rayed. One verdict weighted by position size, with a shareable card. Public balances only |
+| **[Bundle Index](https://gemsearch.fun/live)** | Live: every new pump.fun launch, 30 seconds after mint, checked for other buys in its launch block. 3+ = bundled, 1–2 = sniped, 0 = clean. Live feed, share of the day, biggest launch blocks, hourly chart, dev-buy sizes |
+| **[Telegram bot](https://t.me/gemsearchfunbot)** | `@gemsearchfunbot`: send a contract address for the scan card, `/xray` for the web with its crew line, `/watch` for before → after alerts when the dev sells, liquidity drains or the coin graduates. Works in groups |
+
+A crew, a cluster or a bundle is a funding pattern on chain, not a proven identity. A high score means a clean launch, not that a coin will go up.
 
 ## 🚀 Launch a coin from gemsearch.fun
 
