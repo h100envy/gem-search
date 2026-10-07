@@ -7,13 +7,14 @@ import time
 import queue
 from pathlib import Path
 from urllib.parse import quote
-from PySide6.QtCore import Qt, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
+from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableModel, QObject, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
 from solscan_monitor import SolscanMonitor
 from desktop_credentials import load_key, save_key
+from kolscan_directory import bundled_wallets, read_wallets, SOURCE, CAPTURED
 
 
 def icon():
@@ -96,6 +97,117 @@ class TokenTable(QTableView):
         return self.model().rowCount()
 
 
+class KOLWalletPage(QWidget):
+    def __init__(self, directory):
+        super().__init__()
+        self.path = Path(directory) / 'kol-wallets.json'
+        self.imported = []
+        self.page = 0
+        box = QVBoxLayout(self)
+        self.notice = QLabel('50 Solana wallets from Kolscan\'s daily leaderboard, captured ' + CAPTURED + '. This snapshot is not the complete KOL registry. Live wallet trade alerts are not enabled.')
+        self.notice.setWordWrap(True)
+        box.addWidget(self.notice)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText('Search KOL name or wallet address')
+        self.search.textChanged.connect(self.filter_changed)
+        box.addWidget(self.search)
+        self.table = TokenTable()
+        self.table.setModel(TokenTableModel(['KOL name', 'Wallet address', 'List source', 'Captured'], self.table))
+        self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().hide()
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.doubleClicked.connect(lambda index: self.open_wallet('https://solscan.io/account/'))
+        box.addWidget(self.table, 1)
+        actions = QHBoxLayout()
+        for label, callback in [('Copy wallet', self.copy_wallet), ('Solscan', lambda: self.open_wallet('https://solscan.io/account/')), ('Kolscan', lambda: self.open_wallet('https://kolscan.io/account/')), ('Import list', self.import_list), ('Current leaderboard', lambda: QDesktopServices.openUrl(QUrl(SOURCE)))]:
+            button = QPushButton(label)
+            button.clicked.connect(callback)
+            actions.addWidget(button)
+        box.addLayout(actions)
+        paging = QHBoxLayout()
+        self.count = QLabel()
+        paging.addWidget(self.count)
+        paging.addStretch()
+        self.previous = QPushButton('Previous')
+        self.previous.clicked.connect(lambda: self.turn_page(-1))
+        self.following = QPushButton('Next')
+        self.following.clicked.connect(lambda: self.turn_page(1))
+        paging.addWidget(self.previous)
+        paging.addWidget(self.following)
+        box.addLayout(paging)
+        if self.path.exists():
+            try:
+                self.imported = read_wallets(self.path)
+            except (OSError, ValueError) as error:
+                self.notice.setText(self.notice.text() + '\nSaved import could not be loaded: ' + str(error))
+        self.render()
+
+    def render(self):
+        wallets = {row['address']: row for row in self.imported}
+        wallets.update({row['address']: row for row in bundled_wallets()})
+        query = self.search.text().strip().casefold()
+        rows = sorted((row for row in wallets.values() if query in (row['name'] + ' ' + row['address']).casefold()), key=lambda row: row['name'].casefold())
+        size = max(1, (self.table.viewport().height() - 4) // 40)
+        pages = max(1, (len(rows) + size - 1) // size)
+        self.page = min(self.page, pages - 1)
+        self.table.model().replace(rows[self.page * size:(self.page + 1) * size], lambda row: [row['name'], row['address'], row['source'], row['captured']])
+        self.count.setText(str(len(rows)) + ' matching wallets / ' + str(len(wallets)) + ' saved · Page ' + str(self.page + 1) + ' of ' + str(pages))
+        self.previous.setEnabled(self.page > 0)
+        self.following.setEnabled(self.page + 1 < pages)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.render)
+
+    def filter_changed(self):
+        self.page = 0
+        self.render()
+
+    def turn_page(self, delta):
+        self.page = max(0, self.page + delta)
+        self.render()
+
+    def selected(self):
+        index = self.table.currentIndex()
+        return self.table.model().records[index.row()] if index.isValid() else None
+
+    def copy_wallet(self):
+        row = self.selected()
+        if row:
+            QApplication.clipboard().setText(row['address'])
+
+    def open_wallet(self, base):
+        row = self.selected()
+        if row:
+            QDesktopServices.openUrl(QUrl(base + quote(row['address'], safe='')))
+
+    def import_list(self):
+        filename, unused = QFileDialog.getOpenFileName(self, 'Import Solana wallets', '', 'Wallet lists (*.csv *.json)')
+        if not filename:
+            return
+        try:
+            incoming = read_wallets(filename)
+            merged = {row['address']: row for row in self.imported}
+            merged.update({row['address']: row for row in incoming})
+            if len(merged) > 10000:
+                raise ValueError('This app supports up to 10,000 imported wallets')
+            temporary = self.path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(list(merged.values()), ensure_ascii=False), encoding='utf-8')
+            temporary.replace(self.path)
+            self.imported = list(merged.values())
+            self.filter_changed()
+        except (OSError, ValueError) as error:
+            QMessageBox.information(self, 'Wallet list', str(error))
+
+
 class DesktopWindow(QMainWindow):
     def __init__(self, store, background=True):
         super().__init__()
@@ -121,7 +233,7 @@ class DesktopWindow(QMainWindow):
         self.setWindowIcon(icon())
         self.resize(1320, 850)
         self.setMinimumSize(1000, 620)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, background and store.get('keep_on_top', True))
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, background and store.get('keep_on_top', False))
         container = QWidget()
         self.setCentralWidget(container)
         layout = QVBoxLayout(container)
@@ -161,9 +273,13 @@ class DesktopWindow(QMainWindow):
         controls.addWidget(QLabel('Monitor for'))
         controls.addWidget(self.duration)
         keep_on_top = QCheckBox('Keep on top')
-        keep_on_top.setChecked(store.get('keep_on_top', True))
+        keep_on_top.setChecked(store.get('keep_on_top', False))
         keep_on_top.toggled.connect(self.set_on_top)
         controls.addWidget(keep_on_top)
+        self.minimize_outside = QCheckBox('Minimize when I click outside')
+        self.minimize_outside.setChecked(store.get('minimize_on_deactivate', True))
+        self.minimize_outside.toggled.connect(lambda value: self.save_setting('minimize_on_deactivate', value))
+        controls.addWidget(self.minimize_outside)
         controls.addStretch()
         self.control_buttons = {}
         for label, callback, style in [('Start monitoring', self.start_monitor, 'primary'), ('Stop', self.stop_monitor, 'stop')]:
@@ -245,6 +361,8 @@ class DesktopWindow(QMainWindow):
             self.page_buttons[name] = (previous, following)
             self.tables[name] = table
             self.tabs.addTab(page, name)
+        self.kol_page = KOLWalletPage(store.directory)
+        self.tabs.addTab(self.kol_page, 'KOL wallets')
         settings_page = QWidget()
         settings = QVBoxLayout(settings_page)
         settings.addWidget(QLabel('ALERT RULES\nNet swap inflow: buys minus sells exceed $100,000 over five minutes.\nMarket cap: $40,000 before token age five minutes requires a token creation source.'))
@@ -519,6 +637,15 @@ class DesktopWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def event(self, event):
+        if event.type() == QEvent.Type.WindowDeactivate and getattr(self, 'background', False) and hasattr(self, 'minimize_outside') and self.minimize_outside.isChecked():
+            QTimer.singleShot(150, self.minimize_if_inactive)
+        return super().event(event)
+
+    def minimize_if_inactive(self):
+        if not self.quitting and self.minimize_outside.isChecked() and self.isVisible() and not self.isActiveWindow() and QApplication.activeModalWidget() is None and QApplication.activePopupWidget() is None:
+            self.showMinimized()
+
     def closeEvent(self, event):
         if self.quitting or not QSystemTrayIcon.isSystemTrayAvailable():
             self.quit_app()
@@ -629,9 +756,22 @@ def main():
         assert store.get('session')['enabled']
         window.stop_monitor()
         assert not store.get('session')['enabled']
+        window.tabs.setCurrentWidget(window.kol_page)
+        application.processEvents()
+        window.kol_page.search.setText('Cupsey')
+        assert window.kol_page.table.rowCount() == 1
+        window.kol_page.table.selectRow(0)
+        window.kol_page.copy_wallet()
+        assert application.clipboard().text() == '2fg5QD1eD7rzNNCsvnhmXFm5hqNgwTTG8p7kQ6f3rx6f'
+        window.kol_page.search.clear()
+        assert window.kol_page.following.isEnabled()
+        first_page = list(window.kol_page.table.model().records)
+        window.kol_page.turn_page(1)
+        assert window.kol_page.table.model().records != first_page
+        window.kol_page.turn_page(-1)
         application.processEvents()
         window.grab().save(args.smoke_test)
-        Path(args.smoke_test).with_suffix('.json').write_text(json.dumps({'passed': True, 'checks': ['live tokens', 'watchlist', 'alert history', 'search', 'persisted start and stop', 'native widget rendering']}))
+        Path(args.smoke_test).with_suffix('.json').write_text(json.dumps({'passed': True, 'checks': ['live tokens', 'watchlist', 'alert history', 'search', 'persisted start and stop', 'KOL search', 'wallet clipboard', 'KOL pagination', 'native widget rendering']}))
         window.quit_app()
         return
     result = application.exec()

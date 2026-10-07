@@ -19,3 +19,15 @@ Build from source using requirements-desktop.txt and scripts/build_desktop.py. R
 Free API credentials are supported through Solscan documented playground/token/meta. When Pro discovery access is rejected, the app refreshes saved and watched Solana tokens through this free endpoint. It does not invent free discovery coverage. Add token addresses in Settings. Other providers remain excluded.
 
 The documented free metadata route has stricter observed request limits than the plan card suggests. Free mode conservatively refreshes one token per minute, rotating through the watchlist when present or saved Solana tokens otherwise. Successful responses survive later failures. Rate-limited tokens retry next minute. Samples can become stale; there is no claim of continuous full-market coverage.
+
+Minimize when I click outside is enabled by default. Focus loss minimizes the window without stopping its workers. Active dialogs and pop-up menus do not trigger minimization. Keep on top defaults off and remains optional.
+
+### KOL wallets
+
+The KOL wallets tab contains 50 Solana wallet names and addresses observed on Kolscan's daily leaderboard on October 6, 2026. Search names or addresses, copy a selected wallet, or open its Solscan or Kolscan account page. Pages fit the window without nested scrolling.
+
+This is a dated directory snapshot, not the complete registered KOL population. Kolscan supplies these names; they are not individually verified Solscan labels. Wallet trade monitoring and KOL trade notifications are not enabled in this release. Token prices and market caps continue to come from Solscan.
+
+Import additional CSV or JSON lists using `name` and `address` fields. CSV requires a header row. JSON requires an array of objects. Imports validate Solana address encoding, merge by wallet address and persist locally in `kol-wallets.json`. The app accepts up to 10,000 imported wallets and files smaller than 2 MB. Bundled Kolscan names take precedence for matching addresses. Imports do not add wallet addresses to the token watchlist.
+
+Source: https://kolscan.io/leaderboard
