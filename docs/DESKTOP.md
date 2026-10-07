@@ -22,4 +22,10 @@ The live table shows price, market capitalization, five-minute and 24-hour pair 
 
 The public feed does not provide separate buy and sell USD totals or a one-minute trading window. Net inflow alerts and the early-launch market capitalization alert remain unavailable in this preview. Pair creation time is not treated as token creation time.
 
-Live results and watchlists exclude tokens with zero, missing, invalid or stale liquidity. Saved historical records remain accessible. The same liquidity requirement applies to MCP live and watchlist listings.
+Live results and watchlists exclude tokens with liquidity below $10,000, or missing, invalid or stale liquidity. Saved historical records remain accessible. The same liquidity requirement applies to MCP live and watchlist listings.
+
+Filters opens a range editor with minimum and maximum liquidity, market capitalization, FDV, pair age in hours, transaction counts, buys, sells, volume and price change. Activity ranges use the selected 5M, 1H, 6H or 24H window. Exchange, pair labels, address suffixes, boosted status and confirmed mint status can also be selected. Apply saves settings locally and resets live and watchlist pagination. Cancel preserves existing settings. Reset restores the $10,000 liquidity and $40,000 market cap floors with unrestricted optional ranges. Unknown values fail only active optional ranges. Market capitalization and FDV remain separate. Pair age does not establish token creation time.
+
+Proprietary trending scores, trader counts, ads and profile filters are not included because the public quote response does not provide complete data for them. Filters operate on the app's sampled discovery set and selected highest-liquidity pair.
+
+![Example filter editor](desktop-filters.png)

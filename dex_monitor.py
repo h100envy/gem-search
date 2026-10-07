@@ -41,6 +41,21 @@ def select_pairs(pairs, addresses, captured):
         volume = pair.get('volume') or {}
         txns = (pair.get('txns') or {}).get('m5') or {}
         selected[address] = {'name': base.get('name') or base.get('symbol') or address, 'data_source': 'DexScreener', 'market_cap_source': 'DexScreener', 'market_cap_usd': metric(pair.get('marketCap')), 'market_cap_updated_at': captured, 'price_usd': price, 'price_source': 'DexScreener', 'price_sampled_at': captured, 'liquidity_usd': liquidity, 'volume_m5_usd': metric(volume.get('m5')), 'volume_h24_usd': metric(volume.get('h24')), 'volume_m1_usd': None, 'buy_count_m5': metric(txns.get('buys')), 'sell_count_m5': metric(txns.get('sells')), 'statistics_sampled_at': captured, 'market_pair': pair['pairAddress'], 'pair_created_at': metric(pair.get('pairCreatedAt')), 'token_created_at': None, 'net_inflow_m5_usd': None, 'flow_updated_at': None, 'flow_method': None, 'verification_status': 'Pending mint verification', 'onchain_supply_sampled_at': None}
+    for address, fields in selected.items():
+        pair = next(pair for pair in pairs if isinstance(pair, dict) and pair.get('chainId') == 'solana' and pair.get('pairAddress') == fields['market_pair'] and (pair.get('baseToken') or {}).get('address') == address)
+        fields['dex_id'] = str(pair.get('dexId') or '')
+        fields['fdv_usd'] = metric(pair.get('fdv'))
+        fields['pair_labels'] = [str(label) for label in pair.get('labels', [])] if isinstance(pair.get('labels'), list) else []
+        fields['active_boosts'] = metric((pair.get('boosts') or {}).get('active'))
+        for window in ['m5', 'h1', 'h6', 'h24']:
+            activity = (pair.get('txns') or {}).get(window) or {}
+            buys, sells = metric(activity.get('buys')), metric(activity.get('sells'))
+            fields['buy_count_' + window] = buys
+            fields['sell_count_' + window] = sells
+            fields['transaction_count_' + window] = buys + sells if buys is not None and sells is not None else None
+            fields['volume_' + window + '_usd'] = metric((pair.get('volume') or {}).get(window))
+            change = (pair.get('priceChange') or {}).get(window)
+            fields['price_change_' + window + '_pct'] = change if type(change) in (int, float) and math.isfinite(change) else None
     return selected
 
 

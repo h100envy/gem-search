@@ -1,4 +1,5 @@
 import argparse
+from decimal import Decimal
 import json
 import os
 import sys
@@ -11,6 +12,8 @@ from PySide6.QtCore import Qt, QEvent, QTimer, QUrl, QLockFile, QAbstractTableMo
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QLineEdit, QTabWidget, QTableView, QHeaderView, QSystemTrayIcon, QMenu, QCheckBox, QMessageBox, QScrollArea, QFileDialog, QListWidget, QPlainTextEdit
 from market_metrics import current_flow
+from token_filters import DEFAULTS, matches, sort_key
+from filter_dialog import FilterDialog
 from data_quality import current_cap, current_value, mint_status
 from alerts import TokenAlerts
 from desktop_store import DesktopStore
@@ -52,7 +55,7 @@ def compact(value):
 def price(value):
     if value is None:
         return 'Unavailable'
-    return '$' + ('{:,.2f}'.format(value) if value >= 1 else '{:.10g}'.format(value))
+    return '$' + ('{:,.2f}'.format(value) if value >= 1 else format(Decimal('{:.10g}'.format(value)), 'f'))
 
 
 def stamp(value):
@@ -324,6 +327,7 @@ class DesktopWindow(QMainWindow):
         self.minimize_outside = QCheckBox('Minimize when I click outside')
         self.minimize_outside.setChecked(store.get('minimize_on_deactivate', True))
         self.minimize_outside.toggled.connect(lambda value: self.save_setting('minimize_on_deactivate', value))
+        self.applied_filters = dict(DEFAULTS, **store.get('token_filters', {}))
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search token name, chain or address')
         self.search.textChanged.connect(self.filter_changed)
@@ -361,8 +365,7 @@ class DesktopWindow(QMainWindow):
                 search_controls = QHBoxLayout()
                 search_controls.addWidget(self.search, 1)
                 self.filter_button = QPushButton('Filter')
-                self.filter_button.setCheckable(True)
-                self.filter_button.toggled.connect(self.filter_panel.setVisible)
+                self.filter_button.clicked.connect(self.open_filters)
                 search_controls.addWidget(self.filter_button)
                 box.addLayout(search_controls)
                 box.addWidget(self.filter_panel)
@@ -691,9 +694,9 @@ class DesktopWindow(QMainWindow):
         self.status_label.setToolTip(str(state['checked']) + ' measured flow samples. ' + str(state['skipped']) + ' unavailable flow samples. Last successful response: ' + stamp(state.get('last_success_at')))
         self.persist_session()
         snapshot = self.store_snapshot if self.background else {'tokens': self.store.tokens(), 'alerts': self.alerts.recent(), 'watchlist': self.store.watchlist()}
-        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000 and (current_value(r, 'liquidity_usd', 'statistics_sampled_at') or 0) > 0]
+        tokens = [r for r in snapshot['tokens'] if r.get('data_source') == 'DexScreener' and current_cap(r) is not None and current_cap(r) >= 40000 and (current_value(r, 'liquidity_usd', 'statistics_sampled_at') or 0) >= 10000]
         connected = bool(self.monitor.client.key)
-        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum with positive liquidity. Waiting for data.' if not tokens else '')
+        self.connection_notice.setText('A token connection is required. Add your key in Settings. Saved records remain available.' if not connected else 'No current tokens meet the $40,000 minimum with $10,000 liquidity. Waiting for data.' if not tokens else '')
         self.connection_notice.setVisible(not connected or not tokens or bool(state['error']))
         feed_errors = [state.get(k) for k in ('error', 'ranking_error', 'flow_error') if state.get(k)]
         if feed_errors:
@@ -705,19 +708,12 @@ class DesktopWindow(QMainWindow):
         self.control_buttons['stop'].setEnabled(state['enabled'])
         query = self.search.text().lower()
         minimum = self.minimum_cap.currentData()
-        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (current_cap(r) is not None and current_cap(r) >= minimum)) and (not self.confirmed_only.isChecked() or mint_status(r) == 'confirmed')]
-        if self.token_sort.currentData() == 'cap':
-            filtered.sort(key=lambda r: (-(current_cap(r) if current_cap(r) is not None else -1), r['name'].casefold(), r['address']))
-        elif self.token_sort.currentData() == 'newest':
-            filtered.sort(key=lambda r: -(r.get('token_created_at') or 0))
-        elif self.token_sort.currentData() == 'volume':
-            filtered.sort(key=lambda r: -(current_value(r, 'volume_m5_usd', 'statistics_sampled_at') or 0))
-        else:
-            filtered.sort(key=lambda r: (r['name'].casefold(), r['address']))
+        filtered = [r for r in tokens if query in (r['name'] + r['chain'] + r['address']).lower() and (not minimum or (current_cap(r) is not None and current_cap(r) >= minimum)) and (not self.confirmed_only.isChecked() or mint_status(r) == 'confirmed') and matches(r, self.applied_filters)]
+        filtered.sort(key=lambda r: sort_key(r, self.applied_filters))
         values = lambda r: [r['name'], price(current_value(r, 'price_usd', 'price_sampled_at')), self.cap_cell(r), compact(current_value(r, 'volume_h24_usd', 'statistics_sampled_at')), compact(current_value(r, 'volume_m5_usd', 'statistics_sampled_at')), compact(current_flow(r)), (str(int(r['buy_count_m5'])) + ' / ' + str(int(r['sell_count_m5']))) if current_value(r, 'buy_count_m5', 'statistics_sampled_at') is not None and current_value(r, 'sell_count_m5', 'statistics_sampled_at') is not None else 'Unavailable', compact(current_value(r, 'liquidity_usd', 'statistics_sampled_at')), self.valuation_cell(r), time.strftime('%H:%M:%S', time.localtime(r['market_cap_updated_at']))]
         self.fill_table(self.tables['Live tokens'], filtered, values)
         watched = set(snapshot['watchlist'])
-        self.fill_table(self.tables['Watchlist'], [r for r in tokens if (r['chain'], r['address']) in watched], values)
+        self.fill_table(self.tables['Watchlist'], [r for r in filtered if (r['chain'], r['address']) in watched], values)
         self.fill_table(self.tables['Saved tokens'], snapshot['tokens'], lambda r: [r['name'], r['chain'].upper(), r.get('market_cap_source', 'Unknown historical source'), money(r.get('market_cap_usd')), money(r.get('price_usd')), stamp(r.get('market_cap_updated_at'))])
         alerts = snapshot['alerts']
         self.fill_table(self.tables['Triggered alerts'], alerts, lambda r: [stamp(r['captured_at']), r['chain'], r['address'], 'Activity alert' if r['rule'] == 'net_inflow_100k_5m' else 'Token alert', money(r['value_usd'])])
@@ -734,7 +730,22 @@ class DesktopWindow(QMainWindow):
         index = table.currentIndex()
         return table.model().data(index, Qt.ItemDataRole.UserRole) if index.isValid() else None
 
+    def open_filters(self):
+        snapshot = self.store_snapshot['tokens'] if self.background else self.store.tokens()
+        exchanges = [r['dex_id'] for r in snapshot if r.get('dex_id')]
+        dialog = FilterDialog(self.applied_filters, exchanges, self)
+        if dialog.exec():
+            self.applied_filters = dialog.result_settings
+            self.save_setting('token_filters', self.applied_filters)
+            self.pages['Live tokens'] = self.pages['Watchlist'] = 0
+            self.filter_button.setText('Filters · applied')
+            self.refresh()
+
     def filter_changed(self):
+        if hasattr(self, 'applied_filters') and self.sender() is self.token_sort:
+            self.applied_filters['sort'] = self.token_sort.currentData()
+            if self.token_sort.currentData() == 'volume':
+                self.applied_filters['timeframe'] = 'm5'
         self.pages['Live tokens'] = 0
         self.refresh()
 
