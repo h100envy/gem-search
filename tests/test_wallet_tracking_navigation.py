@@ -80,6 +80,22 @@ class TrackingTests(unittest.TestCase):
         collector.process('signature')
         self.assertEqual(len(collector.snapshot()['wallet_events'][WALLET]), 1)
 
+    def test_backfill_does_not_replace_newer_events_with_older_events(self):
+        def request(method, params):
+            if method == 'getSignaturesForAddress':
+                return [{'signature': 'newer'}, {'signature': 'older'}]
+            tx = transaction(params[0])
+            tx['slot'] = 200 if params[0] == 'newer' else 100
+            return tx
+        collector = WalletIngestion(self.store, request)
+        collector.track(WALLET)
+        collector.discover(WALLET)
+        collector.process('newer')
+        collector.process('older')
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot['events'][0]['signature'], 'newer')
+        self.assertEqual(snapshot['wallet_events'][WALLET][0]['signature'], 'newer')
+
 
 class NavigationTests(unittest.TestCase):
     def setUp(self):

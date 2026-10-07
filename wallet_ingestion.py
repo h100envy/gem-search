@@ -90,6 +90,8 @@ class WalletIngestion:
             CREATE TABLE IF NOT EXISTS wallet_pool_transactions (pool TEXT,signature TEXT,PRIMARY KEY(pool,signature));
             CREATE TABLE IF NOT EXISTS wallet_balance_events (signature TEXT,wallet TEXT,mint TEXT,payload TEXT,PRIMARY KEY(signature,wallet,mint));
             CREATE TABLE IF NOT EXISTS wallet_tracking (address TEXT PRIMARY KEY,name TEXT,created REAL);
+            CREATE INDEX IF NOT EXISTS wallet_event_slot ON wallet_balance_events(json_extract(payload,'$.slot') DESC);
+            CREATE INDEX IF NOT EXISTS wallet_owner_slot ON wallet_balance_events(wallet,json_extract(payload,'$.slot') DESC);
             ''')
         self.state = {'error': None, 'sampled_at': None, 'pools': 0, 'wallets': 0}
 
@@ -187,6 +189,6 @@ class WalletIngestion:
         tracked = self.tracked()
         with self.store.connect() as con:
             counts = dict(con.execute('SELECT state,COUNT(*) FROM wallet_transactions GROUP BY state').fetchall())
-            events = [json.loads(row[0]) for row in con.execute('SELECT payload FROM wallet_balance_events ORDER BY rowid DESC LIMIT 100')]
-            wallet_events = {row['address']: [json.loads(event[0]) for event in con.execute('SELECT payload FROM wallet_balance_events WHERE wallet=? ORDER BY rowid DESC LIMIT 100', (row['address'],))] for row in tracked}
+            events = [json.loads(row[0]) for row in con.execute("SELECT payload FROM wallet_balance_events ORDER BY json_extract(payload,'$.slot') DESC,rowid DESC LIMIT 100")]
+            wallet_events = {row['address']: [json.loads(event[0]) for event in con.execute("SELECT payload FROM wallet_balance_events WHERE wallet=? ORDER BY json_extract(payload,'$.slot') DESC,rowid DESC LIMIT 100", (row['address'],))] for row in tracked}
         return {'status': dict(self.state), 'counts': counts, 'events': events, 'tracked': tracked, 'wallet_events': wallet_events}
