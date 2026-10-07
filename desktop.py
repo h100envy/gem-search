@@ -1243,7 +1243,8 @@ def main():
         window.alerts.evaluate('base', '0x' + 'a' * 40, {'net_inflow_m5_usd': 125000})
         store.record('solana', 'historical-fixture', {'name': 'Historical fixture', 'market_cap_usd': 50000, 'market_cap_source': 'Legacy fixture'})
         window.refresh()
-        assert window.connection_notice.isVisible()
+        assert window.tables['Live tokens'].model().rowCount() == 1
+        assert not window.scanner_empty.isVisible()
         window.start_monitor()
         assert window.monitor.status()['enabled']
         window.stop_monitor()
