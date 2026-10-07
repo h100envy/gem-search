@@ -539,5 +539,6 @@ render();
 loadRecent();
 fetch(API + '/health').then((r) => r.json()).then((h) => { if (!h.github) { $('ghbtn').disabled = true; $('ghoff').hidden = false; } }).catch(() => {});
 </script>
+<script src="crawlers.js" defer></script>
 </body>
 </html>
