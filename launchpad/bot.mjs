@@ -1,6 +1,7 @@
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { createRadar, TRACK_MAX } from './bot/radar.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
+import { createCouncil, factsOf, SEATS } from './council.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -264,7 +265,7 @@ export function parseCommand(text, botName) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function createBot({ token, rpc, dataDir = '/data', conn = null, log = console, radar: radarConfig = null } = {}) {
+export function createBot({ token, rpc, dataDir = '/data', conn = null, log = console, radar: radarConfig = null, xaiKey = null } = {}) {
   const API = `https://api.telegram.org/bot${token}`;
   const clean = (e) => String(e?.stack ?? e).split(token).join('<token>');
   const connection = conn ?? new Connection(rpc, 'confirmed');
@@ -500,6 +501,34 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     }
   }
 
+  // Grok Council: four Grok seats debate the coin from live X posts and the spider's facts, then vote.
+  const council = xaiKey ? createCouncil({ key: xaiKey, dataDir, file: 'council-bot.json', dailyUsd: Number(process.env.COUNCIL_BOT_DAILY_USD ?? 0.75), log }) : null;
+  const councilHits = new Map();
+  async function runCouncil(chatId, userId, mint, replyTo) {
+    const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
+    if (!council) return send(chatId, '🤖 The council is not set up on this server.', opts);
+    const now = Date.now(), hits = (councilHits.get(userId) ?? []).filter((t) => now - t < 600_000);
+    if (hits.length >= 2) return send(chatId, '🤖 The council meets twice per 10 minutes per person. Try again shortly.', opts);
+    councilHits.set(userId, [...hits, now]);
+    const msg = await send(chatId, '🤖 Convening the Grok Council… the Lookout is reading X (about 20 seconds)', opts);
+    try {
+      const [s, x] = await Promise.all([scan(mint), xray(mint).catch(() => null)]);
+      let c = null;
+      try { crewDb ??= openDb(join(dataDir, 'crews.db')); const rec = crewOf(crewDb, mint); c = rec.known ? rec : x ? (() => { const l = linksFromXray(x); return { crew: crewFromLinks(crewDb, mint, l.wallets, l.funders) }; })() : null; } catch {}
+      const d = await council.convene(factsOf(s, x, c));
+      const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\[\[(\d+)\]\]\([^)]+\)/g, '');
+      const head = `🤖 <b>Grok Council</b> on ${esc(s.name ?? '')} ${s.symbol ? '<b>$' + esc(s.symbol) + '</b>' : ''}\n\n🔭 <b>What X says</b>\n${md(d.x.summary || 'almost nothing yet').slice(0, 900)}`;
+      const talk = d.turns.map((t) => `${SEATS[t.seat]?.emoji ?? '🕷️'} <b>${SEATS[t.seat]?.name ?? t.seat}:</b> ${md(t.text)}`).join('\n\n');
+      const votes = d.votes.map((v) => `${SEATS[v.seat]?.emoji ?? ''} ${SEATS[v.seat]?.name ?? v.seat}: <b>${v.vote}</b> — ${md(v.why)}`).join('\n');
+      const end = `${votes}\n\n🏛 <b>Verdict: ${d.verdict}</b> (APE ${d.tally.APE} · WATCH ${d.tally.WATCH} · AVOID ${d.tally.AVOID})\n<i>${md(d.summary)}</i>\n\n<i>Grok reads X claims as opinions and checks them against the spider's data. Not financial advice.</i>`;
+      await edit(chatId, msg.message_id, head);
+      await send(chatId, talk);
+      await send(chatId, end, { reply_markup: { inline_keyboard: [[{ text: '🔎 Full scan + council on the site', url: `${SITE}/scan?ca=${mint}` }]] } });
+    } catch (e) {
+      await edit(chatId, msg.message_id, errorText(e)).catch(() => {});
+    }
+  }
+
   async function addWatch(chatId, mint) {
     const list = (watches[chatId] ??= {});
     if (list[mint]) return '👁 Already watching this coin.';
@@ -617,6 +646,10 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
           return send(chatId, LAUNCH_TEXT);
         case 'radar':
           return onRadar(chatId, cmd.arg);
+        case 'council': {
+          const mint = ca();
+          return mint ? runCouncil(chatId, userId, mint, m.message_id) : need('council');
+        }
         case 'track':
         case 'untrack':
         case 'tracks':
@@ -676,6 +709,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         { command: 'watch', description: 'Alert me when a coin changes' },
         { command: 'unwatch', description: 'Stop watching a coin' },
         { command: 'watches', description: 'Coins watched in this chat' },
+        { command: 'council', description: 'Grok Council: four Grok minds debate a coin' },
         { command: 'track', description: 'Follow X accounts: their posts land here' },
         { command: 'tracks', description: 'X accounts tracked in this chat' },
         { command: 'launch', description: 'Launch a pump.fun coin from your wallet' },
@@ -734,5 +768,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const radar = process.env.X_BEARER_TOKEN && process.env.RADAR_CODE
     ? { bearer: process.env.X_BEARER_TOKEN, code: process.env.RADAR_CODE, budgetUsd: Number(process.env.RADAR_BUDGET_USD ?? 9), minFollowers: Number(process.env.RADAR_MIN_FOLLOWERS ?? 1000), intervalMs: Number(process.env.RADAR_EVERY_S ?? 180) * 1000 }
     : null;
-  createBot({ token, rpc, dataDir: process.env.BOT_DATA_DIR ?? '/data', radar }).start();
+  createBot({ token, rpc, dataDir: process.env.BOT_DATA_DIR ?? '/data', radar, xaiKey: process.env.XAI_API_KEY ?? null }).start();
 }

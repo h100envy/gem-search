@@ -7,6 +7,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { buildLaunch, checkSigned, LaunchError, parseLaunch } from './launch.mjs';
 import { scanToken } from './scan.mjs';
 import { walletHoldings } from './wallet.mjs';
+import { createCouncil, factsOf } from './council.mjs';
 import { xrayToken } from './xray.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 
@@ -242,6 +243,39 @@ async function wallet(req, address) {
   return value;
 }
 
+// --- Grok Council ------------------------------------------------------------------------------------------------
+const council = env('XAI_API_KEY', '') ? createCouncil({ key: env('XAI_API_KEY', ''), dataDir: dirname(LOG), dailyUsd: Number(env('COUNCIL_DAILY_USD', 1.5)) }) : null;
+const councils = new Map();
+async function councilFacts(req, mint) {
+  const [s, x] = await Promise.all([scan(req, mint), xray(req, mint).catch(() => null)]);
+  let c = null;
+  try { c = crew(mint); } catch {}
+  return factsOf(s, x, c);
+}
+async function convene(req, mint) {
+  if (!council) throw new LaunchError(503, 'the council is not set up on this server');
+  try { new PublicKey(mint); } catch { throw new LaunchError(400, 'that is not a Solana address'); }
+  const hit = councils.get(mint);
+  if (hit?.value && Date.now() - hit.at < 900_000) return hit.value;
+  if (hit?.pending) return hit.pending;
+  limit(`council:${req.ip}`, 3, 300_000, 'the council meets 3 times per 5 minutes per visitor; try again shortly');
+  const pending = councilFacts(req, mint).then((f) => council.convene(f).then((d) => ({ ...d, facts: f })));
+  councils.set(mint, { pending });
+  try {
+    const value = await pending;
+    councils.set(mint, { at: Date.now(), value });
+    if (councils.size > 300) councils.delete(councils.keys().next().value);
+    return value;
+  } catch (err) { councils.delete(mint); throw err; }
+}
+async function askCouncil(req, mint, body) {
+  if (!council) throw new LaunchError(503, 'the council is not set up on this server');
+  const d = councils.get(mint)?.value;
+  if (!d) throw new LaunchError(400, 'convene the council on this coin first');
+  limit(`ask:${req.ip}`, 6, 300_000, 'six questions per 5 minutes; give the council a breather');
+  return council.ask(d.facts, d, body?.q);
+}
+
 async function status(signature) {
   if (!conn) throw new LaunchError(503, 'launches are not switched on yet');
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) throw new LaunchError(400, 'not a signature');
@@ -292,6 +326,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') return send(200, { ok: true, launches: Boolean(conn && PINATA) && !PAUSED, github: Boolean(conn && (await lookupTable())) });
     if (req.method === 'GET' && url.pathname === '/v1/recent') return send(200, recent());
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
+    if (req.method === 'POST' && /^\/v1\/council\/[^/]+\/ask$/.test(url.pathname)) return send(200, await askCouncil(req, decodeURIComponent(url.pathname.split('/')[3]), await readJson(req, 4_000)));
+    if (req.method === 'GET' && url.pathname.startsWith('/v1/council/')) { const d = await convene(req, decodeURIComponent(url.pathname.slice(12)).trim()); const { facts, ...pub } = d; return send(200, pub); }
     if (req.method === 'GET' && url.pathname.startsWith('/v1/wallet/')) return send(200, await wallet(req, decodeURIComponent(url.pathname.slice(11)).trim()));
     if (req.method === 'GET' && url.pathname.startsWith('/v1/crew/')) return send(200, crew(decodeURIComponent(url.pathname.slice(9)).trim()));
     if (req.method === 'GET' && url.pathname === '/v1/index') return send(200, await bundleIndex());
