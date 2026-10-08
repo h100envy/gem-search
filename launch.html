@@ -47,6 +47,23 @@ header p{color:var(--muted);font-size:18px;max-width:620px;margin:0 auto}
 .facts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px}
 .fact{font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:rgba(19,15,56,.7);color:#d9d4ff}
 .fact b{color:var(--green)}
+.adv{max-width:760px;margin:22px auto 0;text-align:left;padding:18px 20px;border-radius:20px;background:linear-gradient(180deg,rgba(19,15,56,.92),rgba(12,9,40,.92));border:1px solid var(--line);position:relative}
+.adv::before{content:"";position:absolute;inset:-1px -1px auto -1px;height:3px;border-radius:20px 20px 0 0;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff)}
+.adv .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.adv .k{font:600 12px "JetBrains Mono",monospace;letter-spacing:.14em;color:#9fe9ff}
+.adv .pk{font-weight:800;font-size:20px}
+.adv .top>div:first-child{flex:1;min-width:240px}
+.adv .hl{color:var(--text);margin-top:4px;font-size:15px}
+.adv .why{color:var(--dim);margin-top:4px;font-size:13.5px}
+.adv .use{margin-left:auto;padding:9px 16px;border-radius:999px;border:0;font-weight:700;cursor:pointer;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);color:#0a0820}
+.adv .use[disabled]{opacity:.45;cursor:default}
+.adv .cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.adv .col{padding:12px 14px;border-radius:14px;background:#0a0822;border:1px solid #1d1850;font-size:13.5px;color:var(--muted)}
+.adv .col.win{border-color:rgba(77,255,106,.55)}
+.adv .col b{color:var(--text);font-size:15px}.adv .col .n{font:600 13px "JetBrains Mono",monospace;color:#d9d4ff;margin-top:6px;line-height:1.6}
+.adv .col i{display:block;margin-top:6px;font-style:normal;color:var(--dim)}
+.adv .ft{font-size:12px;color:var(--dim);margin-top:10px}
+@media (max-width:620px){.adv .cols{grid-template-columns:1fr}.adv .use{margin-left:0}}
 
 .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:22px;align-items:start;padding-bottom:40px}
 @media (max-width:900px){.grid{grid-template-columns:1fr}}
@@ -165,6 +182,11 @@ footer p{margin:0 0 8px;max-width:820px}
     <span class="fact">your wallet signs</span>
     <span class="fact">no key leaves your browser</span>
     <span class="fact" id="factfee">fees: yours, or shared with a GitHub dev</span>
+  </div>
+  <div class="adv" id="adv" hidden>
+    <div class="top"><div><div class="k">🕷️ SPIDER'S PICK RIGHT NOW</div><div class="pk" id="advpick"></div><div class="hl" id="advhl"></div><div class="why" id="advwhy"></div></div><button class="use" id="advuse" type="button">Use it</button></div>
+    <div class="cols"><div class="col" id="advsol"></div><div class="col" id="advrh"></div></div>
+    <div class="ft" id="advft"></div>
   </div>
 </header>
 
@@ -369,9 +391,34 @@ $('taxchips').addEventListener('click', (e) => { const t = e.target.dataset?.t; 
 $('netseg').hidden = false;
 if (new URLSearchParams(location.search).get('net') === 'robinhood') setNet('rh');
 $('netseg').addEventListener('click', (e) => { const n = e.target.dataset?.n; if (n && !busy) setNet(n); });
+// --- the spider's chain pick: launches and graduations of the last 24h on both chains, plus the mood on X ---
+const fmtN = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K' : String(n ?? '—');
+const advEsc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+var advPick = null; // var: setNet() can run (?net=robinhood) before this line
+async function loadAdvice() {
+  try {
+    const r = await fetch(API + '/v1/advisor'); if (!r.ok) return;
+    const d = await r.json(); if (!d.pick) return;
+    advPick = d.pick === 'robinhood' ? 'rh' : 'sol';
+    const col = (name, c, win) => `<b>${win ? '✅ ' : ''}${name}</b><div class="n">${fmtN(c.launches24h)} launches in 24h<br>${c.gradPct == null ? 'graduation share: not enough data' : c.gradPct + '% reached a DEX'}</div>${c.x ? `<i>On X: ${advEsc(c.x)}</i>` : ''}`;
+    $('advpick').textContent = d.pick === 'robinhood' ? 'Launch on Robinhood Chain' : 'Launch on Solana';
+    $('advhl').textContent = String(d.headline ?? '').replace(/^launch on (robinhood chain|solana)\s*[:,—-]\s*/i, '').replace(/^./, (c) => c.toUpperCase());
+    $('advwhy').textContent = d.reason ? 'Why: ' + d.reason + '.' : '';
+    $('advsol').innerHTML = col('Solana · pump.fun', d.solana, d.pick === 'solana'); $('advsol').classList.toggle('win', d.pick === 'solana');
+    $('advrh').innerHTML = col('Robinhood Chain · pons', d.robinhood, d.pick === 'robinhood'); $('advrh').classList.toggle('win', d.pick === 'robinhood');
+    const ratio = d.solana.launches24h && d.robinhood.launches24h ? Math.max(d.solana.launches24h, d.robinhood.launches24h) / Math.min(d.solana.launches24h, d.robinhood.launches24h) : null;
+    $('advft').textContent = `Updated ${Math.max(1, Math.round((Date.now() - d.at) / 60000))} min ago from on-chain launches and graduations${ratio ? ` · ${Math.round(ratio)}× fewer coins competing on ${d.solana.launches24h > d.robinhood.launches24h ? 'Robinhood' : 'Solana'}` : ''}. A read of the last 24h, not a promise.`;
+    $('adv').hidden = false; advSync();
+  } catch {}
+}
+function advSync() { if (!advPick) return; const same = advPick === net; $('advuse').disabled = same; $('advuse').textContent = same ? 'Selected' : 'Use it'; }
+$('advuse').addEventListener('click', () => { if (advPick && !busy) setNet(advPick); });
+loadAdvice();
+
 function setNet(n) {
   net = n; wallet = null; provider = null;
   document.querySelectorAll('#netseg button').forEach((b) => b.classList.toggle('on', b.dataset.n === n));
+  advSync();
   const rh = n === 'rh';
   $('hnet').textContent = rh ? 'Robinhood Chain' : 'pump.fun';
   $('lead').textContent = rh ? "Fill it in, sign with your EVM wallet, and the coin is live on pons' bonding curve on Robinhood Chain. It is yours from the first block." : "Fill it in, sign with your wallet, and the coin is live on pump.fun's curve. It is yours from the first block.";
