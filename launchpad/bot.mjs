@@ -623,6 +623,48 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     await saveJson(feedPath, feedSubs).catch(() => {});
   }
 
+  // Launch Cup: /cup shows the live table to anyone; the team (with the radar code) gets the final standings and the
+  // winners' wallets every Monday, to pay the prizes by hand.
+  const cupPath = join(dataDir, 'cup-admin.json');
+  const usd = (n) => (!n ? '—' : '$' + (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : Math.round(n)));
+  const MEDAL = ['🥇', '🥈', '🥉'];
+  const coinLink = (r) => `${r.chain === 'robinhood' ? 'https://ponsfamily.com/token/' : 'https://pump.fun/coin/'}${r.mint}`;
+  async function fetchCup() {
+    const r = await fetch('https://api.gemsearch.fun/v1/cup', { signal: AbortSignal.timeout(20_000) });
+    if (!r.ok) throw new Error('cup ' + r.status);
+    return r.json();
+  }
+  async function onCup(chatId, arg, replyTo) {
+    const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
+    const [word, code] = String(arg ?? '').trim().split(/\s+/);
+    if (word === 'admin' && radarConfig?.code && code === radarConfig.code) {
+      const st = await loadJson(cupPath, { chats: [], reported: null });
+      if (!st.chats.includes(chatId)) st.chats.push(chatId);
+      // Weeks that ended before the team subscribed are not reported again.
+      if (!st.reported) st.reported = (await fetchCup().catch(() => null))?.last?.week ?? null;
+      await saveJson(cupPath, st);
+      return send(chatId, '🏆 This chat gets the Launch Cup results with the winners\' wallets every Monday after 00:00 UTC.', opts);
+    }
+    try {
+      const d = await fetchCup();
+      const left = Math.max(0, d.week.end - Date.now()), dd = Math.floor(left / 86_400_000), hh = Math.floor((left % 86_400_000) / 3_600_000);
+      const rows = d.standings.slice(0, 5).map((r) => `${MEDAL[r.place - 1] ?? r.place + '.'} <a href="${coinLink(r)}">$${esc(r.symbol)}</a> · ${usd(r.marketCap)}${r.prize ? ` · <b>$${r.prize}</b>` : ''}`).join('\n');
+      return send(chatId, `🏆 <b>Launch Cup</b> · week ends in ${dd}d ${hh}h\nPrizes: $${d.prizes.join(' / $')}\n\n${rows || 'No coins launched this week yet: the first clean launch takes first place.'}\n\nLaunch yours: gemsearch.fun/launch · table: gemsearch.fun/cup`, opts);
+    } catch (e) { log.error('[cup]', clean(e)); return send(chatId, '🏆 The table did not load; try again in a minute. gemsearch.fun/cup', opts); }
+  }
+  async function cupPass() {
+    const st = await loadJson(cupPath, { chats: [], reported: null });
+    if (!st.chats.length) return;
+    const d = await fetchCup();
+    const last = d.last;
+    if (!last || st.reported === last.week) return;
+    const top = (last.standings ?? []).slice(0, d.prizes.length);
+    const lines = top.length ? top.map((r) => `${MEDAL[r.place - 1]} <b>$${esc(r.symbol)}</b> · ${usd(r.marketCap)} · prize <b>$${r.prize}</b>\n${r.chain === 'robinhood' ? 'Robinhood (ETH)' : 'Solana'} creator wallet:\n<code>${esc(r.creator)}</code>\n${coinLink(r)}`).join('\n\n') : 'No eligible coins this week: nothing to pay.';
+    for (const c of st.chats) await send(c, `🏆 <b>Launch Cup results · week of ${last.week}</b>\n${last.entries} launches${last.out?.length ? `, ${last.out.length} bundled and out` : ''}\n\n${lines}\n\nPay the prizes, then post the transactions on @gemsearchfun.`).catch((e) => log.error('[cup] send', clean(e)));
+    st.reported = last.week;
+    await saveJson(cupPath, st);
+  }
+
   async function addWatch(chatId, mint) {
     const list = (watches[chatId] ??= {});
     if (list[mint]) return '👁 Already watching this coin.';
@@ -750,6 +792,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         }
         case 'feed':
           return onFeed(chatId, cmd.arg, m.message_id);
+        case 'cup':
+          return onCup(chatId, cmd.arg, m.message_id);
         case 'track':
         case 'untrack':
         case 'tracks':
@@ -827,6 +871,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         { command: 'council', description: 'Grok Council: four Grok minds debate a coin' },
         { command: 'roast', description: 'Grok roasts a coin from its on-chain facts' },
         { command: 'feed', description: 'Clean Launch Feed: new pump.fun launches that pass your filters' },
+        { command: 'cup', description: 'Launch Cup: this week\'s standings and prizes' },
         { command: 'track', description: 'Follow X accounts: their posts land here' },
         { command: 'tracks', description: 'X accounts tracked in this chat' },
         { command: 'launch', description: 'Launch a pump.fun coin from your wallet' },
@@ -866,6 +911,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
       }
     }
     setInterval(watchPass, WATCH_EVERY_MS).unref?.();
+    setInterval(() => cupPass().catch((e) => log.error('[cup]', clean(e))), 600_000).unref?.();
     setInterval(() => feedPass().catch((e) => log.error('[feed]', clean(e))), 20_000).unref?.();
     if (radar) await radar.start().then(() => log.log('[bot] radar ready'), (e) => log.error('[bot] radar', clean(e)));
     log.log('[bot] polling');
