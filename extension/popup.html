@@ -1,1 +1,24 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gem Search</title><link rel="stylesheet" href="popup.css"></head><body><header><img src="icons/48.png" width="38" height="38" alt="Spider"><div>gem<span>search</span><small>YOUR NARRATIVE SPIDER</small></div><b>v0.3</b></header><main><div class="eyebrow">A LITTLE SPIDER. A BIG CURIOSITY.</div><h1>Let it follow<br>the <em>signal.</em></h1><p>A companion for your X feed. Collect visible posts, follow the evidence, let Grok challenge the thesis.</p><div class="connection"><i id="dot"></i><span id="connection">Local engine not paired</span></div><label for="pairing">LOCAL PAIRING CODE</label><div class="pair"><input id="pairing" type="password" placeholder="From Dashboard → Connections" autocomplete="off"><button id="connect">Connect</button></div><div class="counts"><div><b id="captured">0</b><span>OBSERVED</span></div><div><b id="leads">0</b><span>LEADS</span></div><div><b id="queued">0</b><span>LOCAL QUEUE</span></div></div><label class="scroll-option"><input id="auto-scroll" type="checkbox"> Auto-scroll while this tab is visible</label><button id="start" class="primary">Release spider on this tab ↗</button><div class="row"><button id="stop">Pause spider</button><a href="http://127.0.0.1:8787" target="_blank" rel="noopener">Open dashboard ↗</a></div><div id="message" role="status"></div><p class="privacy">Only the visible posts you explore. No cookies, DMs or account actions. Grok receives collected excerpts only when enabled on your local engine.</p><button id="disconnect" class="quiet">Disconnect & clear local queue</button></main><script src="popup.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gem Search</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+<header><img src="icons/48.png" width="38" height="38" alt="Spider"><div>gem<span>search</span><small>YOUR NARRATIVE SPIDER</small></div><b>v0.3</b></header>
+<main>
+<div class="eyebrow">A LITTLE SPIDER. A BIG CURIOSITY.</div>
+<h1>Let it follow<br>the <em>signal.</em></h1>
+<p>A companion for your X feed. Keep a research session running while you use other tabs or apps.</p>
+<div class="connection"><i id="dot"></i><span id="connection">Local engine not paired</span></div>
+<label for="pairing">LOCAL PAIRING CODE</label>
+<div class="pair"><input id="pairing" type="password" placeholder="From Dashboard → Connections" autocomplete="off"><button id="connect">Connect</button></div>
+<div class="counts"><div><b id="captured">0</b><span>OBSERVED</span></div><div><b id="leads">0</b><span>LEADS</span></div><div><b id="queued">0</b><span>LOCAL QUEUE</span></div></div>
+<label for="duration">SCAN DURATION</label>
+<select id="duration"><option value="0">Until I stop it</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option></select>
+<label class="scroll-option"><input id="auto-scroll" type="checkbox"> Auto-scroll the selected feed, including in the background</label>
+<p id="scanner-status" role="status">Scanner stopped.</p>
+<button id="start" class="primary">Release spider on this tab ↗</button>
+<div class="row"><button id="stop">Stop scanner</button><a href="http://127.0.0.1:8787" target="_blank" rel="noopener">Open dashboard ↗</a></div>
+<div id="message" role="status"></div>
+<p class="privacy">Reads rendered posts in the selected feed even when it is in the background. Editing pauses auto-scroll on the visible page, not collection. Keep the browser and feed tab open. No cookies, DMs or account actions. Grok receives excerpts only when enabled locally.</p>
+<button id="disconnect" class="quiet">Disconnect & clear local queue</button>
+</main><script src="popup.js"></script>
+</body></html>

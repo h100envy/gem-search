@@ -4,7 +4,7 @@
   const cut = (value, max) => {const chars=Array.from(clean(value));return chars.length>max?chars.slice(0,max-1).join('')+'…':chars.join('');};
   const xml = value => clean(value).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
   const shortURL = value => {try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)?cut(u.hostname+u.pathname,85):'Source unavailable';}catch{return 'Source unavailable';}};
-  const count = n => Number.isFinite(n)&&n>=0?String(Math.floor(n)):'—';
+  const count = n => Number.isFinite(n)&&n>=0?String(Math.floor(n)):'-';
   function svg(project, theme='aurora', now=new Date()) {
     const light=theme==='daylight', bg=light?'#f5f0ff':'#12121e',panel=light?'#ffffff':'#202034',fg=light?'#26213c':'#f6f2ff',muted=light?'#625b76':'#b8b0cc';
     const colors=light?['#ad2864','#946000','#28784d','#326cb0']:['#ff93c4','#ffd18b','#99e9be','#a4cfff'];

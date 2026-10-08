@@ -1,0 +1,278 @@
+import json
+import math
+import threading
+import time
+from contextlib import contextmanager
+from collections import deque
+from market_metrics import statistics_fields
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from onchain import solana_supplies
+
+
+class SolscanAccessError(ValueError):
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
+class SolscanClient:
+    def __init__(self, key):
+        self.key = key
+        self.free_access = False
+        self.requests = deque()
+        self.retry_at = 0
+        self.denied = {}
+
+    def get(self, endpoint, **params):
+        if not self.key:
+            raise ValueError('Connect Solscan in Settings before monitoring')
+        if self.free_access and endpoint not in ('token/meta', 'token/defi/activities'):
+            raise SolscanAccessError(403, 'Free Solscan access: automatic token discovery unavailable')
+        return self.request(endpoint, params, self.free_access)
+
+    def request(self, endpoint, params, free=False):
+        now = time.monotonic()
+        while self.requests and now - self.requests[0] >= 60:
+            self.requests.popleft()
+        if now < self.retry_at or len(self.requests) >= 60:
+            raise SolscanAccessError(429, 'Request budget cooling down; retrying automatically')
+        identity = (endpoint, free)
+        if now < self.denied.get(identity, 0):
+            raise SolscanAccessError(403, 'Endpoint access unavailable for this credential; retrying later')
+        self.requests.append(now)
+        base = 'https://pro-api.solscan.io/playground/' if free else 'https://pro-api.solscan.io/v2.0/'
+        request = Request(base + endpoint + '?' + urlencode(params), headers={'token': self.key, 'Accept': 'application/json', 'User-Agent': 'GemSearch'})
+        try:
+            with urlopen(request, timeout=8) as response:
+                raw = response.read(2000001)
+        except HTTPError as error:
+            if error.code in (401, 403) and endpoint in ('token/meta', 'token/defi/activities') and not free:
+                result = self.request(endpoint, params, True)
+                self.free_access = True
+                return result
+            if error.code == 429:
+                retry = error.headers.get('Retry-After') if error.headers else None
+                try:
+                    delay = max(60, min(3600, float(retry)))
+                except (TypeError, ValueError):
+                    delay = 60
+                self.retry_at = time.monotonic() + delay
+            if error.code in (401, 403):
+                self.denied[identity] = time.monotonic() + 300
+            raise SolscanAccessError(error.code, {401: 'Solscan rejected access to this endpoint', 403: 'Solscan endpoint access is not enabled for this account', 429: 'Solscan rate limit reached; retrying next minute'}.get(error.code, 'Solscan request failed (' + str(error.code) + ')')) from None
+        if len(raw) > 2000000:
+            raise ValueError('Solscan response exceeds limit')
+        result = json.loads(raw)
+        if result.get('success') is not True:
+            raise ValueError('Solscan returned an unsuccessful response')
+        return result['data']
+
+    def top_tokens(self):
+        data = self.request('token/list-v2', {'sort_by': 'volume_1m', 'sort_order': 'desc', 'page': 1, 'page_size': 100, 'from_market_cap': 40000})
+        rows = data.get('items') if isinstance(data, dict) else data
+        if not isinstance(rows, list):
+            raise ValueError('Invalid ranked token response')
+        records = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            address = row.get('address') or row.get('token_address')
+            if not isinstance(address, str):
+                continue
+            records.append(dict(row, address=address))
+        return records
+
+    def statistics(self, address):
+        data = self.request('token/statistic', {'address': address})
+        if not isinstance(data, dict) or data.get('token_address', data.get('address')) != address:
+            raise ValueError('Statistics token address mismatch')
+        return data
+
+
+def metadata_fields(data, captured):
+    if not isinstance(data, dict) or not isinstance(data.get('address'), str):
+        raise ValueError('Invalid Solscan token metadata')
+    fields = {'name': data.get('name') or data.get('symbol') or data['address'], 'data_source': 'Solscan', 'market_cap_source': 'Solscan', 'market_cap_updated_at': captured, 'price_source': 'Solscan', 'price_sampled_at': captured, 'market_cap_usd': None, 'price_usd': None, 'token_created_at': None, 'net_inflow_m5_usd': None, 'flow_updated_at': None, 'verification_status': 'Pending mint verification', 'onchain_valuation_usd': None, 'onchain_supply': None, 'onchain_slot': None, 'onchain_supply_sampled_at': None, 'solscan_supply': data.get('supply'), 'solscan_decimals': data.get('decimals')}
+    for source, target in [('market_cap', 'market_cap_usd'), ('price', 'price_usd'), ('created_time', 'token_created_at')]:
+        value = data.get(source)
+        if type(value) in (int, float) and math.isfinite(value) and value > 0:
+            fields[target] = value
+    return fields
+
+
+class SolscanMonitor:
+    def __init__(self, alerts, observer=None, watchlist=None, tracked=None, key='', client=None):
+        self.alerts = alerts
+        self.observer = observer
+        self.watchlist = watchlist
+        self.tracked = tracked
+        self.client = client or SolscanClient(key)
+        self.lock = threading.Lock()
+        self.enabled = False
+        self.expires = None
+        self.generation = 0
+        self.last_poll = 0
+        self.offset = 0
+        self.error = None if self.client.key else 'Connect Solscan in Settings before monitoring'
+        self.checked = self.skipped = 0
+        self.valuation_error = None
+        self.ranking_error = None
+        self.flow_error = None
+        self.last_success_at = None
+
+    def set_key(self, key):
+        with self.lock:
+            self.client = SolscanClient(key)
+            self.generation += 1
+            self.last_poll = 0
+            self.error = None if key else 'Connect Solscan in Settings before monitoring'
+
+    def control(self, enabled, minutes=0):
+        if type(enabled) is not bool or type(minutes) is not int or not 0 <= minutes <= 1440:
+            raise ValueError('Invalid monitor duration')
+        with self.lock:
+            self.enabled = enabled and bool(self.client.key)
+            self.expires = time.time() + minutes * 60 if self.enabled and minutes else None
+            self.generation += 1
+        return self.status()
+
+    @contextmanager
+    def alert_gate(self, generation):
+        with self.lock:
+            yield self.enabled and generation == self.generation and (not self.expires or time.time() < self.expires)
+
+    def active(self, generation):
+        with self.alert_gate(generation) as allowed:
+            return allowed
+
+    def status(self):
+        with self.lock:
+            if self.expires and time.time() >= self.expires:
+                self.enabled = False
+            return {'enabled': self.enabled, 'expires_at': self.expires, 'error': self.error, 'checked': self.checked, 'skipped': self.skipped, 'coverage': 'Solscan sampled Solana discovery and metadata; blockchain mint verification', 'market_cap_rule': 'Solscan market cap and token creation timestamp', 'valuation_error': self.valuation_error, 'ranking_error': self.ranking_error, 'flow_error': self.flow_error, 'last_success_at': self.last_success_at, 'retry_at': time.time() + max(0, self.client.retry_at - time.monotonic()) if isinstance(self.client, SolscanClient) else None}
+
+    def poll(self):
+        state = self.status()
+        if not state['enabled'] or time.monotonic() - self.last_poll < 30:
+            return
+        with self.lock:
+            generation, client = self.generation, self.client
+            self.last_poll = time.monotonic()
+        self.checked = self.skipped = 0
+        self.error = self.valuation_error = None
+        tracked_records = [item for item in (self.tracked() if self.tracked else []) if item.get('chain') == 'solana']
+        try:
+            addresses = [item['address'] for item in tracked_records]
+            for start in range(0, len(addresses), 100):
+                if not self.active(generation):
+                    return
+                samples = solana_supplies(addresses[start:start + 100])
+                for item in tracked_records:
+                    sample = samples.get(item['address'])
+                    if sample and self.active(generation):
+                        fields = dict(sample)
+                        fields['verification_status'] = 'Mint and decimals confirmed; USD value not verified' if type(item.get('solscan_decimals')) is int and item['solscan_decimals'] == sample['onchain_decimals'] else 'Mint metadata sampled; provider decimals unavailable'
+                        self.observer('solana', item['address'], fields)
+        except Exception as error:
+            self.valuation_error = 'Blockchain verification unavailable: ' + type(error).__name__
+        try:
+            try:
+                if isinstance(client, SolscanClient):
+                    try:
+                        latest = client.top_tokens()
+                        self.ranking_error = None
+                    except SolscanAccessError as error:
+                        self.ranking_error = 'Top 100 feed unavailable: HTTP ' + str(error.code)
+                        if error.code == 429:
+                            raise
+                        latest = client.get('token/latest', page=1, page_size=20)
+                else:
+                    latest = client.get('token/latest', page=1, page_size=20)
+            except SolscanAccessError as error:
+                if error.code not in (401, 403):
+                    raise
+                latest = []
+                self.error = 'Discovery access unavailable; refreshing saved and watched Solana tokens'
+            if not isinstance(latest, list):
+                raise ValueError('Invalid Solscan discovery response')
+            records = {item['address']: item for item in latest if isinstance(item, dict) and isinstance(item.get('address'), str)}
+            watched = [address for chain, address in (self.watchlist() if self.watchlist else []) if chain == 'solana']
+            tracked = [item['address'] for item in (self.tracked() if self.tracked else []) if item.get('chain') == 'solana']
+            ordered = list(dict.fromkeys(watched + tracked))
+            if ordered:
+                self.offset %= len(ordered)
+            extra = (ordered[self.offset:] + ordered[:self.offset])[:10]
+            attempted = 0
+            for address in extra:
+                if not self.active(generation):
+                    return
+                attempted += 1
+                try:
+                    item = client.get('token/meta', address=address)
+                except SolscanAccessError as error:
+                    if error.code in (401, 403):
+                        raise
+                    self.error = str(error)
+                    if error.code == 429:
+                        attempted -= 1
+                        break
+                    continue
+                except (ValueError, TimeoutError, OSError):
+                    self.error = 'Some Solscan token requests failed; successful results retained'
+                    continue
+                if not isinstance(item, dict) or item.get('address') != address:
+                    self.error = 'Solscan metadata address mismatch; token skipped'
+                    continue
+                if isinstance(client, SolscanClient):
+                    try:
+                        stats = client.statistics(address)
+                        item = dict(item, **{k: v for k, v in stats.items() if k not in ('address', 'token_address', 'name', 'decimals', 'price', 'market_cap', 'created_time')})
+                        self.flow_error = None
+                    except (ValueError, TimeoutError, OSError) as error:
+                        self.flow_error = 'Trading statistics unavailable: ' + ('HTTP ' + str(error.code) if isinstance(error, SolscanAccessError) else type(error).__name__)
+                records[address] = item
+            self.offset = (self.offset + attempted) % max(1, len(ordered))
+            if not records:
+                if not ordered:
+                    self.error = 'Add a Solana token address in Settings; discovery is unavailable on this access tier'
+                return
+            if client.free_access is True and (not self.error or 'Discovery access unavailable' in self.error):
+                self.error = 'Free Solscan access connected; up to 20 token refreshes per minute, watchlist prioritized, discovery unavailable'
+            if not self.active(generation):
+                return
+            samples = {}
+            try:
+                addresses = list(records)
+                for start in range(0, len(addresses), 100):
+                    if not self.active(generation):
+                        return
+                    samples.update(solana_supplies(addresses[start:start + 100]))
+            except Exception as error:
+                self.valuation_error = 'Blockchain verification unavailable: ' + type(error).__name__
+            captured = time.time()
+            for address, item in records.items():
+                if not self.active(generation):
+                    return
+                fields = metadata_fields(item, captured)
+                fields.update(statistics_fields(item, captured))
+                sample = samples.get(address)
+                if sample:
+                    fields.update(sample)
+                    if type(item.get('decimals')) is int and item['decimals'] == sample['onchain_decimals']:
+                        fields['verification_status'] = 'Mint and decimals confirmed; price and market cap from Solscan'
+                    else:
+                        fields['verification_status'] = 'Solscan decimals differ from confirmed mint; alert withheld'
+                else:
+                    fields['verification_status'] = 'Mint verification unavailable; alert withheld'
+                self.observer('solana', address, fields)
+                self.last_success_at = captured
+                if sample and type(item.get('decimals')) is int and item['decimals'] == sample['onchain_decimals']:
+                    self.alerts.evaluate('solana', address, {'net_inflow_m5_usd': fields['net_inflow_m5_usd'], 'market_cap_usd': fields['market_cap_usd'], 'token_created_at': fields['token_created_at'], 'source': 'Solscan; independent confirmed mint verification', 'creation_source': 'Solscan'}, captured, gate=lambda: self.alert_gate(generation))
+                if fields['net_inflow_m5_usd'] is None:
+                    self.skipped += 1
+                else:
+                    self.checked += 1
+        except Exception as error:
+            self.error = str(error) if isinstance(error, ValueError) else 'Solscan unavailable: ' + type(error).__name__

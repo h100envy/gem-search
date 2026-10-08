@@ -25,6 +25,10 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from automation import Automation, discover_free, load_env
 from grok import GrokReview
+from market import MarketRadar
+from alerts import TokenAlerts
+from token_monitor import TokenMonitor
+from telegram_alerts import TelegramDelivery
 from jev import Jev
 
 ROOT = Path(__file__).resolve().parent
@@ -40,6 +44,10 @@ MAX_BODY = 2_000_000
 AUTO = None
 JEV = None
 GROK = None
+MARKET = None
+ALERTS = None
+MONITOR = None
+TELEGRAM = None
 EXTENSION_KEY = ''
 
 
@@ -592,6 +600,18 @@ def launch_loop():
             AUTO.error = f'Queue error: {type(exc).__name__}'
 
 
+def market_loop():
+    while not STOP.wait(1):
+        MARKET.poll()
+
+
+def alert_loop():
+    while not STOP.wait(1):
+        MONITOR.poll()
+        if os.getenv('ALERT_DESTINATION', 'desktop') == 'telegram':
+            TELEGRAM.tick()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
@@ -629,6 +649,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed_host():
             return self.send(403, {'error': 'Local requests only'})
         path = urlsplit(self.path).path
+        if path == '/api/market':
+            return self.send(200, MARKET.status() if MARKET else {})
+        if path == '/api/alerts':
+            return self.send(200, {'monitor': MONITOR.status(), 'telegram': TELEGRAM.status(), 'alerts': ALERTS.recent()})
         if path=='/api/extension/status':
             if not self.extension_auth():return self.send(403,{'error':'Pairing required'})
             with connect() as con:
@@ -651,6 +675,8 @@ class Handler(BaseHTTPRequestHandler):
                                                    'free_feed': os.getenv('FREE_FEED_ENABLED', '1') == '1'}})
         files = {'/capsule.js': ('capsule.js', 'text/javascript; charset=utf-8'), '/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         files.update({'/spider-demo':('../docs/spider-demo.html','text/html; charset=utf-8'),
+                      '/market.js':('market.js','text/javascript; charset=utf-8'),
+                      '/alerts.js':('alerts.js','text/javascript; charset=utf-8'),
                       '/spider-demo.js':('../docs/spider-demo.js','text/javascript; charset=utf-8'),
                       '/spider-ui.js':('../extension/spider-ui.js','text/javascript; charset=utf-8')})
         if path in files:
@@ -669,6 +695,25 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(size) or '{}')
             if extension_request:
                 return self.send(202,JEV.ingest(data))
+            if self.path == '/api/alerts/control':
+                return self.send(200, MONITOR.control(data.get('enabled'), data.get('minutes', 0)))
+            if self.path == '/api/alerts/observe':
+                if not isinstance(data, dict) or not isinstance(data.get('chain'), str) or not isinstance(data.get('address'), str) or not isinstance(data.get('metrics'), dict):
+                    raise ValueError('chain, address and metrics are required')
+                if len(data['chain']) > 40 or len(data['address']) > 128:
+                    raise ValueError('Token identifier exceeds limit')
+                if not MONITOR.status()['enabled']:
+                    raise ValueError('Start alert monitoring first')
+                return self.send(200, {'alerts': ALERTS.evaluate(data['chain'], data['address'], data['metrics'])})
+            if self.path == '/api/market/watch':
+                MARKET.watch(data.get('address'))
+                return self.send(200, MARKET.status())
+            if self.path == '/api/market/unwatch':
+                return self.send(200, MARKET.unwatch(data.get('address')))
+            if self.path == '/api/market/control':
+                return self.send(200, MARKET.control(data.get('enabled'), data.get('minutes', 0)))
+            if self.path == '/api/market/pump':
+                return self.send(200, MARKET.pump_control(data.get('enabled'), data.get('minutes', 0)))
             if self.path == '/api/demo':
                 started = begin(demo_posts(), 'demo')
             elif self.path == '/api/import':
@@ -707,13 +752,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global AUTO,JEV,GROK,EXTENSION_KEY
+    global AUTO,JEV,GROK,EXTENSION_KEY,MARKET,ALERTS,MONITOR,TELEGRAM
     load_env(ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8787)
     parser.add_argument('--autopilot', action='store_true', help='Watch data/inbox every five minutes')
     args = parser.parse_args()
     init()
+    MARKET = MarketRadar(connect)
+    ALERTS = TokenAlerts(connect)
+    MONITOR = TokenMonitor(ALERTS)
+    TELEGRAM = TelegramDelivery(connect, ROOT)
+    threading.Thread(target=alert_loop, daemon=True).start()
+    threading.Thread(target=market_loop, daemon=True).start()
+    threading.Thread(target=MARKET.pump_loop, args=(STOP,), daemon=True).start()
     key_path=DATA/'extension-key'
     if not key_path.exists():
         fd=os.open(key_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)

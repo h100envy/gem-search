@@ -1,7 +1,15 @@
-<p align="center"><img src="docs/banner.svg" alt="Gem Search — a rainbow spider that follows the evidence" width="100%"></p>
+<p align="center"><img src="docs/banner.svg" alt="Gem Search - a rainbow spider that follows the evidence" width="100%"></p>
+
+## Windows token monitor
+
+This standalone desktop project builds on [h100envy/gem-search](https://github.com/h100envy/gem-search). Original history and MIT licensing are preserved. The earlier fork and historical downloads remain available at [gem-search](https://github.com/nightangelflowerwin-ops/gem-search).
+
+The Windows app includes a read-only MCP connection for compatible assistants. Anyone can connect their own local app using Assistant connection in the sidebar. See [MCP setup and tools](docs/MCP.md).
+
+The desktop app provides a workspace for tokens, watchlists, saved records and notification controls. Start monitoring manually, then stop it manually or choose a time limit. Download the Windows preview from [Releases](https://github.com/nightangelflowerwin-ops/gem-search-desktop/releases). See [desktop usage](docs/DESKTOP.md) for setup and limitations.
 
 <p align="center">
-  <a href="https://github.com/h100envy/gem-search/actions/workflows/ci.yml"><img src="https://github.com/h100envy/gem-search/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
+  <a href="https://github.com/nightangelflowerwin-ops/gem-search-desktop/actions/workflows/ci.yml"><img src="https://github.com/nightangelflowerwin-ops/gem-search-desktop/actions/workflows/ci.yml/badge.svg" alt="Checks"></a>
   <img src="https://img.shields.io/badge/Chrome-Manifest_V3-ff95b1?labelColor=191922" alt="Chrome Manifest V3">
   <img src="https://img.shields.io/badge/local-first-91e5c7?labelColor=191922" alt="Local first">
   <img src="https://img.shields.io/badge/Grok-4_perspectives-bca4ff?labelColor=191922" alt="Four optional Grok reviewers">
@@ -197,16 +205,18 @@ python3 app.py
 1. Open **http://127.0.0.1:8787**. Visit **Connections** and copy the local pairing code.
 2. Open **chrome://extensions**, enable **Developer mode**, click **Load unpacked**, select this repository's **extension/** directory.
 3. Open the Gem Search toolbar popup, paste the pairing code and click **Connect**.
-4. Open an X feed, search or profile page. Click **Release spider on this tab**.
-5. Scroll normally, or opt into auto-scroll. The spider only inspects rendered posts in the visible viewport. Pause or dismiss it at any time.
+4. Open an X feed, search or profile page. Choose **Until I stop it** (the default) or a time limit, then click **Release spider on this tab**.
+5. Scroll normally, or opt into auto-scroll, including in the background. The spider samples rendered posts in the selected feed's viewport even when you switch tabs or apps. Editing on the visible page pauses auto-scroll, not the scanner. **Stop scanner** in the popup works from any tab; overlay Stop or dismiss also ends the session.
 
-The local engine must stay running. If it is offline, up to 200 captured posts remain in the extension queue. The next successful connection forwards them. Background tabs do not collect or auto-scroll.
+The local engine must stay running. If it is offline, up to 200 captured posts remain in the extension queue. The next successful connection forwards them. Worker suspension and same-origin feed reloads retain the scanner's original session/deadline. A one-minute worker alarm supplements content timers in background tabs. Captures after the deadline are rejected even if an alarm is delayed.
+
+Keep the browser and selected feed tab open. Browsers can throttle background execution; sleeping computers and discarded/frozen pages cannot render new posts. The session waits for an unloaded tab to recover. Closing that tab, leaving supported feed routes/origin, or restarting the browser ends the session. Start a new session after reopening the browser. Stop prevents new collection; already queued posts may still be forwarded. This is best-effort background research, not an always-on data feed.
 
 **Try the spider without an X account:** open **http://127.0.0.1:8787/spider-demo**. It uses the same spider renderer over fictional cards, makes no API calls and collects nothing. The dashboard's **Demo scan** separately exercises the research pipeline with clearly marked synthetic projects.
 
 ## Give it four Grok perspectives
 
-<p align="center"><img src="docs/grok-seats.svg" alt="Lookout, Maker, Skeptic and Runner — four evidence-bound Grok reviewers" width="100%"></p>
+<p align="center"><img src="docs/grok-seats.svg" alt="Lookout, Maker, Skeptic and Runner - four evidence-bound Grok reviewers" width="100%"></p>
 
 Add your key **locally** to `.env`, then restart the engine:
 

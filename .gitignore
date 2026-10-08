@@ -3,6 +3,9 @@ data/
 .DS_Store
 dist/
 .venv/
+.venv-desktop/
+build/
+*.spec
 .env.*
 !.env.example
 *.pyc
@@ -17,3 +20,5 @@ data/*.lock
 data/launch-paused
 data/*.pid
 topics.json
+
+private_credentials.py

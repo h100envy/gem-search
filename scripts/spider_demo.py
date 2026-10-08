@@ -190,7 +190,7 @@ def main():
         s = p['signals']
         label, color = KINDS[p['kind']]
         bar = fg(color, '┃', True)
-        growth = f"×{s['growth']}" if s.get('growth') is not None else '—'
+        growth = f"×{s['growth']}" if s.get('growth') is not None else '-'
         verdict = {'shortlisted': fg(MINT, 'SHORTLIST', True), 'held': fg(AMBER, 'NEEDS DATA', True), 'rejected': fg(PINK, 'REJECTED', True)}[p['status']]
         checks = '  '.join((fg(MINT, '✔') if v['vote'] == 'pass' else fg(AMBER, '…') if v['vote'] == 'hold' else fg(PINK, '✖')) + ' ' + v['seat'] for v in p['votes'])
         log('lead', f"{bar} {fg(color, label.ljust(14), True)}{fg(WHITE, p['name'], True)}", step / 3)

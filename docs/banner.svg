@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="880" viewBox="0 0 1440 880" role="img" aria-labelledby="title desc">
-  <title id="title">Gem Search — Let curiosity crawl</title>
+  <title id="title">Gem Search - Let curiosity crawl</title>
   <desc id="desc">A large rainbow spider on a midnight background. A local-first browser companion powered by JEV, crawler and four Grok perspectives.</desc>
   <defs>
     <linearGradient id="rainbow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff628d"/><stop offset=".18" stop-color="#ffac66"/><stop offset=".36" stop-color="#ffe67a"/><stop offset=".52" stop-color="#a7f68b"/><stop offset=".68" stop-color="#63e8e8"/><stop offset=".84" stop-color="#9298ff"/><stop offset="1" stop-color="#e993ff"/></linearGradient>
@@ -62,5 +62,5 @@
     <g transform="translate(672 30)"><text fill="#91e5c7" font-size="10" letter-spacing="2">03 / INVESTIGATE</text><text y="36" fill="#f1edf4" font-size="22" font-weight="600">Trace the evidence</text><text y="63" fill="#8f90a6" font-size="13">Crawler follows public links.</text></g>
     <g transform="translate(992 30)"><text fill="#b5a2ed" font-size="10" letter-spacing="2">04 / CHALLENGE</text><text y="36" fill="#f1edf4" font-size="22" font-weight="600">Ask four minds</text><text y="63" fill="#8f90a6" font-size="13">Grok reviews. You see why.</text></g>
   </g>
-  <text x="720" y="851" fill="#5f6378" font-size="10" letter-spacing="3" text-anchor="middle" font-family="Arial,Helvetica,sans-serif">A RESEARCH COMPANION — NOT A PROMISE OF RETURNS</text>
+  <text x="720" y="851" fill="#5f6378" font-size="10" letter-spacing="3" text-anchor="middle" font-family="Arial,Helvetica,sans-serif">A RESEARCH COMPANION - NOT A PROMISE OF RETURNS</text>
 </svg>
