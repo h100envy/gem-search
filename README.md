@@ -6,12 +6,14 @@
   <img src="https://img.shields.io/badge/local-first-91e5c7?labelColor=191922" alt="Local first">
   <img src="https://img.shields.io/badge/Grok-4_perspectives-bca4ff?labelColor=191922" alt="Four optional Grok reviewers">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-f1cf8a?labelColor=191922" alt="MIT license"></a>
+  <a href="https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump"><img src="https://img.shields.io/badge/token-$GEMSEARCH-4dff6a?labelColor=191922" alt="$GEMSEARCH on Solana"></a>
+  <a href="https://t.me/gemsearchfunbot"><img src="https://img.shields.io/badge/Telegram-@gemsearchfunbot-1fd2ff?labelColor=191922&logo=telegram&logoColor=white" alt="Telegram bot"></a>
   <a href="https://x.com/gemsearchfun"><img src="https://img.shields.io/badge/X-@gemsearchfun-f4f0ff?labelColor=191922&logo=x&logoColor=white" alt="Follow @gemsearchfun on X"></a>
 </p>
 
 <h1 align="center">🕷️ Meet the curious side of your feed.</h1>
-<p align="center"><b>Your next research rabbit hole has eight legs.</b><br>A browser companion that turns the posts you see into questions worth asking.</p>
-<p align="center"><a href="#%EF%B8%8F-the-spider-on-the-web-tools-at-gemsearchfun">Tools</a> · <a href="#-launch-a-coin-from-gemsearchfun">Launchpad</a> · <a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
+<p align="center"><b>Your next research rabbit hole has eight legs.</b><br>A browser companion that turns the posts you see into questions worth asking, plus free on-chain tools, a launchpad for two chains and a Telegram bot at <a href="https://gemsearch.fun">gemsearch.fun</a>.</p>
+<p align="center"><a href="#-latest-updates">Latest</a> · <a href="#-gemsearch-the-token">$GEMSEARCH</a> · <a href="#%EF%B8%8F-the-spider-on-the-web-tools-at-gemsearchfun">Tools</a> · <a href="#-launch-a-coin-from-gemsearchfun">Launchpad</a> · <a href="#-whats-new-the-spider-catches-it-early">What's new</a> · <a href="#quick-start">Get started</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/PRIVACY.md">Privacy</a> · <a href="https://gemsearch.fun">gemsearch.fun</a> · <a href="https://x.com/gemsearchfun">X @gemsearchfun</a></p>
 
 <br>
 
@@ -24,6 +26,28 @@
 </table>
 
 <br>
+
+## 🆕 Latest updates
+
+| | |
+| --- | --- |
+| 🟢 **Robinhood Chain launches** | The launchpad now speaks two chains: Solana via pump.fun and Robinhood Chain via pons, from one form. The first Robinhood launch went through clean |
+| 🕷️ **Spider's chain pick** | The launch page tells you where to launch right now, from the last 24h of launches and graduations on both chains, plus the mood on X |
+| 🔥 **Burn** | [gemsearch.fun/burn](https://gemsearch.fun/burn): burn $GEMSEARCH from your wallet in one click, with a live counter of every burn |
+| 🏆 **Launch Cup** | [gemsearch.fun/cup](https://gemsearch.fun/cup): $50 / $20 / $10 every week for the most successful coins launched on gemsearch.fun. `/cup` in the bot |
+| 🌈 **Crawling spiders** | Rainbow spiders walk across every page of the site, frame a block and spin threads to it |
+
+## 💎 $GEMSEARCH, the token
+
+| | |
+| --- | --- |
+| **Chain** | Solana (Token-2022), launched on pump.fun, graduated to PumpSwap |
+| **Contract** | `GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump` |
+| **Buy** | [pump.fun](https://pump.fun/coin/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump) · [DexScreener](https://dexscreener.com/solana/GQCGitfVw5LYnj4L4zrNUMYeK9dNxEJi9ZjMwMfQpump) |
+| **Burned** | Live on [gemsearch.fun/burn](https://gemsearch.fun/burn): every burn is on chain with its transaction (about 5% of the supply so far) |
+| **Buyback** | 2 SOL of $GEMSEARCH bought back from creator fees ([transaction](https://solscan.io/tx/2Xikg61Ab49jsmKSdHQYDfYfpNAXTzmTAUnSDMRr36qM87pg3FjCsms37sRuBZP6rSCbk62izeUjaJ7auMkB73wQ)) |
+
+Every tool below is free and does not require holding the token. Burning reduces supply; it is not a promise of price. Nothing here is financial advice.
 
 ## 🕸️ The spider on the web: tools at gemsearch.fun
 
@@ -44,13 +68,13 @@ Everything below is free, needs no wallet connection and runs on the open-source
 | **[Spider's chain pick](https://gemsearch.fun/launch)** | On the launch page: which chain to launch on right now, Solana (pump.fun) or Robinhood Chain (pons). Compares the last 24h of launches (the crowd you compete with) and the share that reached a DEX (pons factory events on chain; a DexScreener sample for pump.fun). The pick follows the numbers; Grok adds the mood on X for each chain. One click switches the form |
 | **[Burn](https://gemsearch.fun/burn)** | Burn $GEMSEARCH from your own wallet in one click: a Token-2022 BurnChecked built in the browser, signed by you. Live total burned, % of supply, every burn with its transaction, and the countdown to the next scheduled burn |
 | **[Launch Cup](https://gemsearch.fun/cup)** | Every week the three most successful coins launched through gemsearch.fun win $50, $20 and $10: ranked by market cap at the end of the week, one coin per creator, bundled launches out. Live table |
-| **[Telegram bot](https://t.me/gemsearchfunbot)** | `@gemsearchfunbot`: send a contract address for the scan card, `/xray` for the web with its crew line, `/watch` for before → after alerts when the dev sells, liquidity drains or the coin graduates, `/track @account` to follow up to 5 X accounts: their new posts land in the chat, with a scan button when they drop a contract address. Works in groups |
+| **[Telegram bot](https://t.me/gemsearchfunbot)** | `@gemsearchfunbot`: send a contract address for the scan card, `/xray` for the web with its crew line, `/watch` for before → after alerts when the dev sells, liquidity drains or the coin graduates, `/track @account` to follow up to 5 X accounts: their new posts land in the chat, with a scan button when they drop a contract address. Also `/council`, `/roast`, `/feed`, `/cup` and `/launch`. Works in groups |
 
 A crew, a cluster or a bundle is a funding pattern on chain, not a proven identity. A high score means a clean launch, not that a coin will go up.
 
 ## 🚀 Launch a coin from gemsearch.fun
 
-The spider finds the narrative. Now you can launch on it without leaving the site: **[gemsearch.fun/launch](https://gemsearch.fun/launch)** creates a coin on pump.fun from the wallet in your browser.
+The spider finds the narrative. Now you can launch on it without leaving the site: **[gemsearch.fun/launch](https://gemsearch.fun/launch)** creates a coin on **Solana via pump.fun** or on **Robinhood Chain via pons**, from the wallet in your browser. Not sure which? The spider's chain pick at the top of the page compares both chains right now. Coins launched here also enter the weekly [Launch Cup](https://gemsearch.fun/cup).
 
 | | |
 | --- | --- |
@@ -62,9 +86,9 @@ The spider finds the narrative. Now you can launch on it without leaving the sit
 | **GitHub repo and source post** | Link the repo behind a coin and the X post it was made about. Neither launchpad has fields for them, so they go in the X and website fields when free, otherwise at the end of the description, and show as badges in our list |
 | **0% to Gem Search** | No platform fee, no cut of creator fees |
 
-**How it stays safe.** The coin's mint key is made in your browser and never leaves it. The launch server stores the image and metadata on IPFS, builds the pump.fun transaction with you as payer and owner, and sends it only if what your wallet signed is byte for byte what it built. It holds no key of yours and has no database. The server is open source in [`launchpad/`](https://github.com/h100envy/gem-search/tree/launchpad/launchpad) on the `launchpad` branch, with tests and a mainnet simulation that spends nothing.
+**How it stays safe.** The coin's mint key is made in your browser and never leaves it. The launch server stores the image and metadata on IPFS, builds the pump.fun transaction with you as payer and owner, and sends it only if what your wallet signed is byte for byte what it built. It holds no key of yours and keeps no accounts. The server is open source in [`launchpad/`](https://github.com/h100envy/gem-search/tree/launchpad/launchpad) on the `launchpad` branch, with tests and a mainnet simulation that spends nothing.
 
-Coins follow pump.fun's rules and fees. Gem Search does not review, endorse or list what anyone launches.
+Coins follow pump.fun's and pons' rules and fees. Gem Search does not review, endorse or list what anyone launches.
 
 ## ✨ What's new: the spider catches it early
 
@@ -302,7 +326,8 @@ docs/                Architecture, privacy, preview and launch documentation
 scripts/             Icon generation, ZIP packaging, sample signals and terminal walkthrough
 automation.py        Optional durable launch queue
 launch/              Optional isolated-wallet Solana executor
-launchpad/           gemsearch.fun/launch server (launchpad branch): pump.fun launches signed by your wallet
+launchpad/           gemsearch.fun server (launchpad branch): pump.fun and pons launches, scanner, X-ray,
+                     council, bundle index, burn, Launch Cup, chain advisor and the Telegram bot
 tests/               Offline tests and unsigned provider fixture
 ```
 
@@ -312,7 +337,7 @@ X markup changes. The extractor uses rendered `article[data-testid="tweet"]`, te
 
 The engine is local and single-user. Do not expose its port to the internet. Keys, wallet files, captured posts and SQLite are ignored by Git. Read [SECURITY.md](SECURITY.md) before changing trust boundaries.
 
-MIT · Independent project. Not affiliated with X, xAI, Pump.fun or PumpPortal.
+MIT · Independent project. Not affiliated with X, xAI, Pump.fun, PumpPortal, pons, Robinhood or DexScreener.
 
 <br>
 <p align="center">🌸 🟠 🌼 🌿 🧊 🔮</p>
