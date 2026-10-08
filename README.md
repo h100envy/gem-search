@@ -172,10 +172,12 @@ python3 app.py
 1. Open **http://127.0.0.1:8787**. Visit **Connections** and copy the local pairing code.
 2. Open **chrome://extensions**, enable **Developer mode**, click **Load unpacked**, select this repository's **extension/** directory.
 3. Open the Gem Search toolbar popup, paste the pairing code and click **Connect**.
-4. Open an X feed, search or profile page. Click **Release spider on this tab**.
-5. Scroll normally, or opt into auto-scroll. The spider only inspects rendered posts in the visible viewport. Pause or dismiss it at any time.
+4. Open an X feed, search or profile page. Choose **Until I stop it** (the default) or a time limit, then click **Release spider on this tab**.
+5. Scroll normally, or opt into auto-scroll, including in the background. The spider samples rendered posts in the selected feed's viewport even when you switch tabs or apps. Editing on the visible page pauses auto-scroll, not the scanner. **Stop scanner** in the popup works from any tab; overlay Stop or dismiss also ends the session.
 
-The local engine must stay running. If it is offline, up to 200 captured posts remain in the extension queue. The next successful connection forwards them. Background tabs do not collect or auto-scroll.
+The local engine must stay running. If it is offline, up to 200 captured posts remain in the extension queue. The next successful connection forwards them. Worker suspension and same-origin feed reloads retain the scanner's original session/deadline. A one-minute worker alarm supplements content timers in background tabs. Captures after the deadline are rejected even if an alarm is delayed.
+
+Keep the browser and selected feed tab open. Browsers can throttle background execution; sleeping computers and discarded/frozen pages cannot render new posts. The session waits for an unloaded tab to recover. Closing that tab, leaving supported feed routes/origin, or restarting the browser ends the session. Start a new session after reopening the browser. Stop prevents new collection; already queued posts may still be forwarded. This is best-effort background research, not an always-on data feed.
 
 **Try the spider without an X account:** open **http://127.0.0.1:8787/spider-demo**. It uses the same spider renderer over fictional cards, makes no API calls and collects nothing. The dashboard's **Demo scan** separately exercises the research pipeline with clearly marked synthetic projects.
 

@@ -19,7 +19,7 @@
       const walk=now=>{const delta=Math.min((now-last)/1000,.05);last=now;const dx=this.target.x-this.x,dy=this.target.y-this.y,d=Math.hypot(dx,dy);if(d<2||this.reduced){this.x=this.target.x;this.y=this.target.y;this.render();this.pet.classList.remove('walking');return;}const step=Math.min(d,delta*240);this.x+=dx/d*step;this.y+=dy/d*step;this.render();this.frame=requestAnimationFrame(walk);};this.frame=requestAnimationFrame(walk);
       clearTimeout(this.hideFocus);this.hideFocus=setTimeout(()=>this.focus.style.opacity='0',2000);
     }
-    update({read,leads,status,paused}){if(read!==undefined)this.read.textContent=read;if(leads!==undefined)this.leads.textContent=leads;if(status)this.status.textContent=status;if(paused!==undefined){this.pause.textContent=paused?'Resume':'Pause';this.bubble.textContent=paused?'Taking a little break':'Hunting for signals';if(paused){cancelAnimationFrame(this.frame);this.pet.classList.remove('walking');this.focus.style.opacity='0';}}}
+    update({read,leads,status,paused,stopped}){if(read!==undefined)this.read.textContent=read;if(leads!==undefined)this.leads.textContent=leads;if(status)this.status.textContent=status;if(paused!==undefined){this.pause.textContent=paused?'Resume':'Pause';this.bubble.textContent=paused?'Taking a little break':'Hunting for signals';if(paused){cancelAnimationFrame(this.frame);this.pet.classList.remove('walking');this.focus.style.opacity='0';}}if(stopped!==undefined){this.pause.disabled=stopped;this.pause.textContent=stopped?'Stopped':'Stop';}}
     destroy(){cancelAnimationFrame(this.frame);clearTimeout(this.hideFocus);this.host.remove();}
   }
   globalThis.GemSpiderUI=Spider;
