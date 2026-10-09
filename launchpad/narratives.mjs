@@ -31,7 +31,8 @@ const SCHEMA = {
 const PROMPT = `You are the Gem Search spider hunting X for narratives a memecoin could launch on right now.
 Search X for what started spreading in the last 6 hours: new memes and catchphrases, viral animals, new AI models or products, funny tech or internet moments, crypto culture jokes. Prefer things that are rising now over things that peaked days ago.
 For each narrative (up to 8): title (max 6 words), why (one sentence: what is happening and why people care), a fitting coin name (max 24 chars) and ticker (2-10 letters, A-Z/0-9, no $), heat (early = a few posts, rising = spreading fast, hot = everywhere), kind, and up to 3 links to the X posts where you saw it (x.com/<user>/status/<id> only, links you actually found).
-Skip: tragedies, deaths, disasters, wars, politics, hate, sexual content, anything about minors, and anything that would impersonate a real person, brand or company as if they launched the coin. No price predictions, no promises.`;
+Skip: tragedies, deaths, disasters, wars, politics, hate, sexual content, anything about minors, and anything that would impersonate a real person, brand or company as if they launched the coin.
+Also skip anything that is an existing coin, token, launchpad or project promoting itself (shills, launch announcements, airdrops, 'CA:' posts): the narrative must be organic internet culture, not someone else's product. No price predictions, no promises.`;
 
 export const tickerOf = (s) => String(s ?? '').toUpperCase().replace(/^\$/, '').replace(/[^A-Z0-9]/g, '').slice(0, 10);
 // A post as Grok writes it: x.com/<user>/status/<id>, x.com/i/status/<id>, x.com/i/web/status/<id>, or the bare id.
