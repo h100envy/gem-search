@@ -1,3 +1,4 @@
+import { solanaConnection } from './rpc-pool.mjs';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { createRadar, TRACK_MAX } from './bot/radar.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
@@ -270,7 +271,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function createBot({ token, rpc, dataDir = '/data', conn = null, log = console, radar: radarConfig = null, xaiKey = null } = {}) {
   const API = `https://api.telegram.org/bot${token}`;
   const clean = (e) => String(e?.stack ?? e).split(token).join('<token>');
-  const connection = conn ?? new Connection(rpc, 'confirmed');
+  const connection = conn ?? solanaConnection('confirmed');
   const statePath = join(dataDir, 'bot-state.json');
   const watchPath = join(dataDir, 'bot-watches.json');
   let me = null;
@@ -634,6 +635,21 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
     if (!r.ok) throw new Error('cup ' + r.status);
     return r.json();
   }
+  // Narrative Hunter: what the spider found moving on X, from the site's API (one Grok hunt serves everyone).
+  async function onNarratives(chatId, replyTo) {
+    const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true, disable_web_page_preview: true };
+    try {
+      const r = await fetch('https://api.gemsearch.fun/v1/narratives', { signal: AbortSignal.timeout(170_000) });
+      const d = r.ok ? await r.json() : null;
+      const list = d?.narratives ?? [];
+      if (!list.length) return send(chatId, '🕸️ No fresh narratives right now; the spider looks again soon.', opts);
+      const HEAT = { hot: '🔥', rising: '📈', early: '🌱' };
+      const rows = list.slice(0, 6).map((n) => `${HEAT[n.heat] ?? '•'} <b>${esc(n.title)}</b> · $${esc(n.ticker)}\n${esc(n.why)}\n${n.clones24h == null ? '' : n.clones24h ? `${n.clones24h} coin${n.clones24h === 1 ? '' : 's'} with this ticker on pump.fun today · ` : 'no coin with this ticker today · '}<a href="${esc(n.posts[0])}">source post</a>`).join('\n\n');
+      const ago = Math.max(1, Math.round((Date.now() - d.at) / 60000));
+      return send(chatId, `🕸️ <b>Narratives on X right now</b> · found ${ago} min ago\n\n${rows}\n\nLaunch on one: gemsearch.fun/launch`, opts);
+    } catch (e) { log.error('[narratives]', clean(e)); return send(chatId, '🕸️ The hunt did not load; try again in a minute.', opts); }
+  }
+
   async function onCup(chatId, arg, replyTo) {
     const opts = { reply_to_message_id: replyTo, allow_sending_without_reply: true };
     const [word, code] = String(arg ?? '').trim().split(/\s+/);
@@ -792,6 +808,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         }
         case 'feed':
           return onFeed(chatId, cmd.arg, m.message_id);
+        case 'narratives':
+          return onNarratives(chatId, m.message_id);
         case 'cup':
           return onCup(chatId, cmd.arg, m.message_id);
         case 'track':
@@ -871,6 +889,7 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
         { command: 'council', description: 'Grok Council: four Grok minds debate a coin' },
         { command: 'roast', description: 'Grok roasts a coin from its on-chain facts' },
         { command: 'feed', description: 'Clean Launch Feed: new pump.fun launches that pass your filters' },
+        { command: 'narratives', description: 'Narrative Hunter: what is starting to move on X right now' },
         { command: 'cup', description: 'Launch Cup: this week\'s standings and prizes' },
         { command: 'track', description: 'Follow X accounts: their posts land here' },
         { command: 'tracks', description: 'X accounts tracked in this chat' },
@@ -924,8 +943,8 @@ export function createBot({ token, rpc, dataDir = '/data', conn = null, log = co
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const rpc = process.env.SOLANA_RPC_URL;
-  if (!token || !rpc) {
-    console.error('TELEGRAM_BOT_TOKEN and SOLANA_RPC_URL are required');
+  if (!token) {
+    console.error('TELEGRAM_BOT_TOKEN is required');
     process.exit(1);
   }
   process.on('unhandledRejection', (e) => console.error('[bot] unhandled', String(e?.stack ?? e).split(token).join('<token>')));

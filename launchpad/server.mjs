@@ -11,11 +11,13 @@ import { imageMatches } from './launch.mjs';
 import { walletHoldings } from './wallet.mjs';
 import { createCup } from './cup.mjs';
 import { createAdvisor, createPonsCounter } from './advisor.mjs';
+import { createNarratives } from './narratives.mjs';
 import { createCouncil, factsOf } from './council.mjs';
 import { checkVerdicts, initRecord, recordVerdict, trackRecord } from './record.mjs';
 import { xrayToken } from './xray.mjs';
 import { crewFromLinks, crewOf, linksFromXray, openDb } from './crews.mjs';
 import { burnStats } from './burns.mjs';
+import { solanaConnection, solanaPool } from './rpc-pool.mjs';
 
 /**
  * gemsearch.fun's launchpad API. The page makes the coin's mint key and the creator's wallet signs; this server only
@@ -37,8 +39,9 @@ const SCANS_PER_IP_MINUTE = Number(env('SCANS_PER_IP_MINUTE', 20)); // optional:
 const TABLE = env('LAUNCH_TABLE', ''); // optional address lookup table: keeps the priority fee on launches with a dev buy
 const BUILT_TTL = 150_000; // a blockhash lives ~60-90 s; a little longer covers a slow wallet prompt
 
-if (!RPC || !PINATA) console.warn('launchpad: SOLANA_RPC_URL and PINATA_JWT are required for launches; serving status only');
-const conn = RPC ? new Connection(RPC, 'confirmed') : null;
+if (!PINATA) console.warn('launchpad: PINATA_JWT is required for launches');
+// Solana reads and sends go through our pool of free public RPCs; SOLANA_RPC_URL, when set, is only a backup.
+const conn = solanaConnection('confirmed');
 mkdirSync(dirname(LOG), { recursive: true });
 
 // --- limits -------------------------------------------------------------------------------------------------------
@@ -382,6 +385,14 @@ const advise = () => {
   advisor ??= createAdvisor({ db: crewDb, key: env('XAI_API_KEY', ''), pons: ponsCounter, dataDir: dirname(LOG), dailyUsd: Number(env('ADVISOR_DAILY_USD', 0.5)) });
   return advisor.get();
 };
+// --- Narrative Hunter: what started moving on X in the last hours, with clone counts from the launch feed --------------
+let hunter = null;
+const narratives = () => {
+  if (!env('XAI_API_KEY', '')) throw new LaunchError(503, 'not switched on yet');
+  crewDb ??= openDb(env('CREWS_DB', '/data/crews.db'));
+  hunter ??= createNarratives({ key: env('XAI_API_KEY', ''), db: crewDb, dataDir: dirname(LOG), dailyUsd: Number(env('NARRATIVES_DAILY_USD', 1)) });
+  return hunter.get();
+};
 setInterval(() => ponsCounter.refresh().catch((e) => console.error('[advisor] pons', e.shortMessage ?? e.message)), 300_000).unref();
 
 async function status(signature) {
@@ -436,6 +447,8 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname.startsWith('/v1/status/')) return send(200, await status(url.pathname.slice(11)));
     if (req.method === 'POST' && url.pathname === '/v1/pons/prepare') return send(200, await ponsPrepare(req, await readJson(req, 3_000_000)));
     if (req.method === 'POST' && url.pathname === '/v1/pons/confirm') return send(200, await ponsConfirm(await readJson(req, 4_000)));
+    if (req.method === 'GET' && url.pathname === '/v1/rpc') return send(200, { endpoints: solanaPool().stats() });
+    if (req.method === 'GET' && url.pathname === '/v1/narratives') return send(200, (await narratives()) ?? { narratives: [] });
     if (req.method === 'GET' && url.pathname === '/v1/advisor') return send(200, await advise());
     if (req.method === 'GET' && url.pathname === '/v1/cup') { if (!conn) throw new LaunchError(503, 'not switched on yet'); return send(200, await cup()); }
     if (req.method === 'GET' && url.pathname === '/v1/record') return send(200, councilRecord());

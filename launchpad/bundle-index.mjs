@@ -1,3 +1,4 @@
+import { solanaConnection } from './rpc-pool.mjs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -60,8 +61,8 @@ export function summary(day) {
   return { date: day.date, seen: day.seen, checked: day.checked, known, bundledPct: pct(day.counts.bundled), snipedPct: pct(day.counts.sniped), cleanPct: pct(day.counts.clean), counts: day.counts, sameSlotHist: day.sameSlotHist, devBuy: day.devBuy, hours: day.hours, top: day.top, recent: day.recent, bundleMin: BUNDLE_MIN };
 }
 
-export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = '/data/index', sample = 0.3, delayMs = 30_000, crewsDb = null, log = console } = {}) {
-  const conn = new Connection(rpc, 'confirmed');
+export function startIndex({ rpc = null, dir = '/data/index', sample = 0.3, delayMs = 30_000, crewsDb = null, log = console } = {}) {
+  const conn = rpc ? new Connection(rpc, 'confirmed') : solanaConnection('confirmed');
   // Launches with buys in their launch block also feed Bundle Crews, one at a time behind the index.
   const db = crewsDb ? openDb(crewsDb) : null;
   if (db) initFeed(db);
@@ -150,6 +151,6 @@ export function startIndex({ rpc = 'https://api.mainnet-beta.solana.com', dir = 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  startIndex({ rpc: process.env.INDEX_RPC_URL ?? 'https://api.mainnet-beta.solana.com', dir: process.env.INDEX_DIR ?? '/data/index', sample: Number(process.env.INDEX_SAMPLE ?? 0.3), crewsDb: process.env.CREWS_DB ?? '/data/crews.db' });
+  startIndex({ rpc: process.env.INDEX_RPC_URL ?? null, dir: process.env.INDEX_DIR ?? '/data/index', sample: Number(process.env.INDEX_SAMPLE ?? 0.3), crewsDb: process.env.CREWS_DB ?? '/data/crews.db' });
   setInterval(() => {}, 1 << 30);
 }

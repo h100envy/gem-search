@@ -7,9 +7,10 @@
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { AddressLookupTableProgram, Connection, Keypair, LAMPORTS_PER_SOL, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { sharedLaunchKeys } from './launch.mjs';
+import { solanaConnection } from './rpc-pool.mjs';
 
 const KEY = process.env.OPS_KEY_FILE ?? '/data/ops-key.json';
-const conn = new Connection(process.env.SOLANA_RPC_URL, 'confirmed');
+const conn = solanaConnection('confirmed');
 
 function ops() {
   if (!existsSync(KEY)) {
