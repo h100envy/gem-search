@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 /**
- * Narrative Hunter: every so often Grok walks X (the x_search tool) for what started moving in the last hours and
+ * Narrative Hunter: every three hours Grok walks X (the x_search tool) for what started moving in the last hours and
  * could carry a new coin: a meme, a viral animal, a new AI product, an internet moment. Each narrative comes back with
  * the posts it was found in (only links Grok actually cited are kept), a suggested name and ticker, and how hot it is.
  * The spider then checks its own launch feed: how many pump.fun coins with that ticker already launched today, so a
@@ -34,16 +34,24 @@ For each narrative (up to 8): title (max 6 words), why (one sentence: what is ha
 Skip: tragedies, deaths, disasters, wars, politics, hate, sexual content, anything about minors, and anything that would impersonate a real person, brand or company as if they launched the coin. No price predictions, no promises.`;
 
 export const tickerOf = (s) => String(s ?? '').toUpperCase().replace(/^\$/, '').replace(/[^A-Z0-9]/g, '').slice(0, 10);
-const POST_RE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{5,25}/;
+const POST_RE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/status\/(\d{5,25})/;
+const idOf = (u) => String(u ?? '').match(POST_RE)?.[2] ?? null;
 
-/** Keeps only post links Grok cited (or that match a cited link), normalized to x.com. */
+/**
+ * Keeps only post links Grok cited, matched by status id (its citations look like x.com/i/status/<id>), as
+ * https://x.com/<user>/status/<id> links.
+ */
 export function cleanPosts(posts, cites) {
-  const norm = (u) => (u.match(POST_RE)?.[0] ?? '').replace(/^https?:\/\/(?:www\.)?twitter\.com/, 'https://x.com').replace(/^https?:\/\/(?:www\.)?x\.com/, 'https://x.com');
-  const cited = new Set((cites ?? []).map(norm).filter(Boolean));
-  return [...new Set((posts ?? []).map(norm).filter((u) => u && (cited.size === 0 || cited.has(u))))].slice(0, 3);
+  const cited = new Set((cites ?? []).map(idOf).filter(Boolean));
+  const out = new Map();
+  for (const u of posts ?? []) {
+    const m = String(u).match(POST_RE);
+    if (m && (cited.size === 0 || cited.has(m[2])) && !out.has(m[2])) out.set(m[2], `https://x.com/${m[1]}/status/${m[2]}`);
+  }
+  return [...out.values()].slice(0, 3);
 }
 
-export function createNarratives({ key, db = null, dataDir, every = 90 * 60_000, dailyUsd = 1, now = () => Date.now(), fetchFn = fetch, logger = console }) {
+export function createNarratives({ key, db = null, dataDir, every = 3 * 3_600_000, dailyUsd = 1.5, now = () => Date.now(), fetchFn = fetch, logger = console }) {
   const file = `${dataDir}/narratives.json`;
   let st = { day: null, spent: 0, value: null };
   if (existsSync(file)) try { st = { ...st, ...JSON.parse(readFileSync(file, 'utf8')) }; } catch {}
@@ -61,7 +69,7 @@ export function createNarratives({ key, db = null, dataDir, every = 90 * 60_000,
     if (st.spent >= dailyUsd) return st.value;
     const res = await fetchFn('https://api.x.ai/v1/responses', {
       method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, signal: AbortSignal.timeout(150_000),
-      body: JSON.stringify({ model: 'grok-4.20-0309-non-reasoning', store: false, tools: [{ type: 'x_search' }], max_tool_calls: 6, max_output_tokens: 1500, text: { format: { type: 'json_schema', name: 'narratives', schema: SCHEMA, strict: true } }, input: PROMPT }),
+      body: JSON.stringify({ model: 'grok-4.20-0309-non-reasoning', store: false, tools: [{ type: 'x_search' }], max_tool_calls: 3, max_output_tokens: 1500, text: { format: { type: 'json_schema', name: 'narratives', schema: SCHEMA, strict: true } }, input: PROMPT }),
     }).catch(() => null);
     const json = res ? await res.json().catch(() => null) : null;
     if (!res?.ok || !json) { logger.error('[narratives] grok', res?.status); return st.value; }

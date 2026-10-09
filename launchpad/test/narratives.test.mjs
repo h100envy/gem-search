@@ -11,7 +11,7 @@ test('tickers are cleaned to A-Z/0-9', () => {
 });
 
 test('only cited X post links survive, normalized to x.com', () => {
-  const cites = ['https://x.com/a/status/123456789', 'https://twitter.com/b/status/987654321?s=20'];
+  const cites = ['https://x.com/i/status/123456789', 'https://twitter.com/b/status/987654321?s=20'];
   assert.deepEqual(cleanPosts(['https://twitter.com/a/status/123456789', 'https://x.com/b/status/987654321', 'https://x.com/c/status/555555555', 'https://evil.com/x'], cites),
     ['https://x.com/a/status/123456789', 'https://x.com/b/status/987654321']);
 });

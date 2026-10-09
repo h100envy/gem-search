@@ -390,7 +390,7 @@ let hunter = null;
 const narratives = () => {
   if (!env('XAI_API_KEY', '')) throw new LaunchError(503, 'not switched on yet');
   crewDb ??= openDb(env('CREWS_DB', '/data/crews.db'));
-  hunter ??= createNarratives({ key: env('XAI_API_KEY', ''), db: crewDb, dataDir: dirname(LOG), dailyUsd: Number(env('NARRATIVES_DAILY_USD', 1)) });
+  hunter ??= createNarratives({ key: env('XAI_API_KEY', ''), db: crewDb, dataDir: dirname(LOG), dailyUsd: Number(env('NARRATIVES_DAILY_USD', 1.5)) });
   return hunter.get();
 };
 setInterval(() => ponsCounter.refresh().catch((e) => console.error('[advisor] pons', e.shortMessage ?? e.message)), 300_000).unref();
