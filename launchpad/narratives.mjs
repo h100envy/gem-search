@@ -34,8 +34,10 @@ For each narrative (up to 8): title (max 6 words), why (one sentence: what is ha
 Skip: tragedies, deaths, disasters, wars, politics, hate, sexual content, anything about minors, and anything that would impersonate a real person, brand or company as if they launched the coin. No price predictions, no promises.`;
 
 export const tickerOf = (s) => String(s ?? '').toUpperCase().replace(/^\$/, '').replace(/[^A-Z0-9]/g, '').slice(0, 10);
-const POST_RE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/status\/(\d{5,25})/;
-const idOf = (u) => String(u ?? '').match(POST_RE)?.[2] ?? null;
+// A post as Grok writes it: x.com/<user>/status/<id>, x.com/i/status/<id>, x.com/i/web/status/<id>, or the bare id.
+const POST_RE = /(?:x|twitter)\.com\/(?:([A-Za-z0-9_]{1,15})\/|i\/(?:web\/)?)status(?:es)?\/(\d{5,25})|^\s*()(\d{15,25})\s*$/;
+const idOf = (u) => { const m = String(u ?? '').match(POST_RE); return m ? m[2] ?? m[4] : null; };
+const userOf = (u) => { const m = String(u ?? '').match(POST_RE); return m?.[1] && m[1] !== 'i' ? m[1] : 'i'; };
 
 /**
  * Post links Grok cited, matched by status id (its citations look like x.com/i/status/<id>), as
@@ -45,8 +47,8 @@ export function cleanPosts(posts, cites, { all = false } = {}) {
   const cited = new Set((cites ?? []).map(idOf).filter(Boolean));
   const out = new Map();
   for (const u of posts ?? []) {
-    const m = String(u).match(POST_RE);
-    if (m && (all || cited.size === 0 || cited.has(m[2])) && !out.has(m[2])) out.set(m[2], `https://x.com/${m[1]}/status/${m[2]}`);
+    const id = idOf(u);
+    if (id && (all || cited.size === 0 || cited.has(id)) && !out.has(id)) out.set(id, `https://x.com/${userOf(u)}/status/${id}`);
   }
   return [...out.values()].slice(0, 3);
 }
@@ -97,10 +99,12 @@ export function createNarratives({ key, db = null, dataDir, every = 3 * 3_600_00
     // Every post link is checked with oEmbed: invented ones drop out, real ones get their real author. Where oEmbed
     // cannot be reached, only links Grok cited from its search survive.
     const citedIds = new Set(cites.map(idOf).filter(Boolean));
+    const tally = { links: 0, real: 0, missing: 0, unreachable: 0 };
     const checkPosts = async (posts) => {
       const out = [];
       for (const u of cleanPosts(posts, cites, { all: true })) {
         const v = await verifyPost(u, fetchFn);
+        tally.links++; tally[v ? 'real' : v === null ? 'missing' : 'unreachable']++;
         if (v) out.push(v); else if (v === undefined && citedIds.has(idOf(u))) out.push(u);
       }
       return out;
@@ -114,6 +118,7 @@ export function createNarratives({ key, db = null, dataDir, every = 3 * 3_600_00
       seen.add(ticker);
       list.push({ title: String(n.title).slice(0, 60), why: String(n.why).slice(0, 240), name: String(n.name).slice(0, 32), ticker, heat: n.heat, kind: n.kind, posts, clones24h: clones(ticker) });
     }
+    logger.log?.('[narratives]', JSON.stringify({ found: parsed.narratives?.length ?? 0, kept: list.length, cites: cites.length, ...tally, usd: Math.round(usd * 1000) / 1000 }));
     st.value = { at: now(), narratives: list, usd: Math.round(usd * 1000) / 1000 };
     writeFileSync(file, JSON.stringify(st));
     return st.value;

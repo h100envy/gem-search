@@ -37,3 +37,8 @@ test('oEmbed decides whether a post exists', async () => {
   assert.equal(await verifyPost('https://x.com/a/status/123456789', f(503)), undefined);
   assert.equal(await verifyPost('https://x.com/a/status/123456789', async () => { throw new Error('down'); }), undefined);
 });
+
+test('post links in any shape Grok writes them', () => {
+  assert.deepEqual(cleanPosts(['https://x.com/i/web/status/2108552240533586034', '2108552240533586035', 'x.com/bob/status/2108552240533586036'], [], { all: true }),
+    ['https://x.com/i/status/2108552240533586034', 'https://x.com/i/status/2108552240533586035', 'https://x.com/bob/status/2108552240533586036']);
+});
