@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { PublicKey } from '@solana/web3.js';
+import bs58 from 'bs58';
 import { LaunchError } from './launch.mjs';
 
 const require = createRequire(import.meta.url);
@@ -11,6 +12,11 @@ const { PUMP_SDK, bondingCurvePda, canonicalPumpPoolPda, feeSharingConfigPda } =
  * that share a funder, sent to each other, or bought together at launch. Every link carries the transaction behind it.
  *
  * Exchanges fund thousands of strangers, so their hot wallets never count as a shared funder.
+ *
+ * Only standard Solana JSON-RPC is used (free public RPCs, a few requests a second), so every read is capped.
+ * Worst case per X-ray: 3 (mint, curve, fee config) + SIG_PAGES (25) mint signature pages + LAUNCH_TXS (40) launch
+ * transactions + 2 (largest holders and their owners) + 1 per 100 launch buyers' balances (1-2) + TRACE_WALLETS (24) x
+ * (1 signature page + TXS_PER_WALLET (2) transactions) = 72 => about 145 calls. A quiet coin needs a fraction of that.
  */
 export const EXCHANGES = new Set([
   '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9', '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', '2ojv9BAiHUrvsm9gxDe7fJSzbNZSJcxZvf8dqmWGHG8S', // Binance
@@ -24,25 +30,125 @@ export const EXCHANGES = new Set([
   'u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w', // Gate
 ]);
 const LAUNCH_WINDOW_S = 5; // buys this soon after creation count as launch buys
+const SIG_PAGES = 25; // mint signature pages of 1000 walked back to the launch
+const LAUNCH_TXS = 40; // successful transactions read in the launch window
+const TRACE_WALLETS = 24; // wallets whose history is read for funding and transfers
+const TXS_PER_WALLET = 2; // transactions read per traced wallet
+const CONCURRENCY = 3;
+const PUMP = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+// Anchor discriminators of pump.fun's create and create_v2 (node_modules/@pump-fun/pump-sdk/src/idl/pump.json).
+// In both the mint is account 0; the launching wallet ("user") is account 7 in create and 5 in create_v2.
+const CREATES = [
+  { name: 'create', disc: [24, 30, 200, 40, 5, 28, 7, 119], user: 7 },
+  { name: 'create_v2', disc: [214, 144, 76, 236, 95, 139, 49, 180], user: 5 },
+];
 
 const round = (x, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
-async function pool(items, n, fn) {
+/** Runs fn over items, n at a time; a failed item becomes null (unknown), never a guess. */
+export async function pool(items, n, fn) {
   const out = new Array(items.length);
   let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k], k).catch(() => null); } }));
   return out;
 }
 
-export async function xrayToken(conn, rpc, mintText) {
-  const key = (() => { try { return new URL(rpc).searchParams.get('api-key'); } catch { return null; } })();
-  if (!key) throw new LaunchError(503, 'the X-ray needs a Helius key on the server');
-  const helius = (path, body) => fetch(`https://api.helius.xyz/v0/${path}${path.includes('?') ? '&' : '?'}api-key=${key}`, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) } : { signal: AbortSignal.timeout(20_000) }).then((r) => (r.ok ? r.json() : null));
+export const getTx = (conn, signature) => conn.getParsedTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: 'confirmed' });
 
+const str = (x) => (x == null ? null : String(x)); // PublicKey or base58 string (JSON fixtures) -> base58
+/** Outer instructions, each followed by its inner ones, in execution order. */
+function instructions(tx) {
+  const inner = new Map((tx.meta?.innerInstructions ?? []).map((x) => [x.index, x.instructions]));
+  return (tx.transaction?.message?.instructions ?? []).flatMap((ix, i) => [ix, ...(inner.get(i) ?? [])]);
+}
+
+/**
+ * A parsed RPC transaction in the shape the analysis below was written against (Helius "enhanced" transactions):
+ * { signature, slot, timestamp, feePayer, failed, nativeTransfers: [{ fromUserAccount, toUserAccount, amount (lamports) }],
+ *   tokenTransfers: [{ fromUserAccount, toUserAccount, mint, tokenAmount (ui units) }] }.
+ * Token accounts are resolved to their owners from the pre/post token balances, falling back to the account's
+ * initialization in the same transaction; a source with no balance record falls back to the transfer authority.
+ */
+export function shapeTx(tx) {
+  if (!tx?.transaction) return null;
+  const keys = (tx.transaction.message?.accountKeys ?? []).map((k) => str(k?.pubkey ?? k));
+  const meta = tx.meta ?? {};
+  const accounts = new Map(); // token account -> { owner, mint, decimals }
+  for (const b of [...(meta.preTokenBalances ?? []), ...(meta.postTokenBalances ?? [])]) {
+    const a = keys[b.accountIndex];
+    if (a) accounts.set(a, { owner: b.owner ?? accounts.get(a)?.owner ?? null, mint: b.mint, decimals: b.uiTokenAmount?.decimals ?? accounts.get(a)?.decimals ?? null });
+  }
+  const ixs = instructions(tx);
+  for (const ix of ixs) {
+    const p = ix.parsed;
+    if (!p?.info || typeof p !== 'object') continue;
+    const prog = ix.program;
+    let acct = null, owner = null;
+    if ((prog === 'spl-token' || prog === 'spl-token-2022') && /^initializeAccount/.test(p.type)) [acct, owner] = [p.info.account, p.info.owner];
+    else if (prog === 'spl-associated-token-account' && /^create/.test(p.type)) [acct, owner] = [p.info.account, p.info.wallet];
+    if (acct && owner && !accounts.get(acct)?.owner) accounts.set(acct, { decimals: null, ...accounts.get(acct), owner, mint: accounts.get(acct)?.mint ?? p.info.mint ?? null });
+  }
+  const nativeTransfers = [], tokenTransfers = [];
+  const passing = new Map(); // account -> SOL put into it in this transaction: { from, lamports }
+  if (!meta.err) {
+    for (const ix of ixs) {
+      const p = ix.parsed;
+      if (!p?.info || typeof p !== 'object') continue;
+      if (ix.program === 'system' && (p.type === 'transfer' || p.type === 'transferWithSeed')) {
+        nativeTransfers.push({ fromUserAccount: p.info.source, toUserAccount: p.info.destination, amount: Number(p.info.lamports) });
+        if (p.info.destination) passing.set(p.info.destination, { from: passing.get(p.info.destination)?.from ?? p.info.source, lamports: (passing.get(p.info.destination)?.lamports ?? 0) + Number(p.info.lamports) });
+      } else if (ix.program === 'system' && /^createAccount/.test(p.type) && p.info.newAccount) {
+        passing.set(p.info.newAccount, { from: p.info.source, lamports: (passing.get(p.info.newAccount)?.lamports ?? 0) + Number(p.info.lamports) });
+      } else if ((ix.program === 'spl-token' || ix.program === 'spl-token-2022') && p.type === 'closeAccount' && passing.has(p.info.account)) {
+        // SOL routed through a token account opened and closed in the same transaction (a common way to fund a
+        // wallet without a plain transfer): count it as a transfer from whoever filled that account.
+        const via = passing.get(p.info.account);
+        if (via.from && p.info.destination && via.lamports > 0) nativeTransfers.push({ fromUserAccount: via.from, toUserAccount: p.info.destination, amount: via.lamports, via: p.info.account });
+        passing.delete(p.info.account);
+      } else if ((ix.program === 'spl-token' || ix.program === 'spl-token-2022') && (p.type === 'transfer' || p.type === 'transferChecked')) {
+        const src = accounts.get(p.info.source), dst = accounts.get(p.info.destination);
+        const mint = p.info.mint ?? src?.mint ?? dst?.mint ?? null;
+        const decimals = p.info.tokenAmount?.decimals ?? src?.decimals ?? dst?.decimals;
+        const amount = p.info.tokenAmount ? Number(p.info.tokenAmount.uiAmountString ?? p.info.tokenAmount.uiAmount) : decimals != null ? Number(p.info.amount) / 10 ** decimals : null;
+        if (amount == null || !Number.isFinite(amount)) continue;
+        tokenTransfers.push({ fromUserAccount: src?.owner ?? p.info.authority ?? p.info.multisigAuthority ?? null, toUserAccount: dst?.owner ?? null, fromTokenAccount: p.info.source, toTokenAccount: p.info.destination, mint, tokenAmount: amount });
+      }
+    }
+  }
+  return { signature: tx.transaction.signatures?.[0] ?? null, slot: tx.slot, timestamp: tx.blockTime ?? null, feePayer: keys[0] ?? null, failed: Boolean(meta.err), nativeTransfers, tokenTransfers };
+}
+
+/** pump.fun create / create_v2 instructions in a parsed transaction (outer or via CPI): [{ mint, user, kind }]. */
+export function pumpCreates(tx) {
+  if (!tx?.transaction || tx.meta?.err) return [];
+  const out = [];
+  for (const ix of instructions(tx)) {
+    if (str(ix.programId) !== PUMP || !ix.data || !ix.accounts) continue;
+    let data;
+    try { data = bs58.decode(ix.data); } catch { continue; }
+    const kind = CREATES.find((c) => c.disc.every((b, i) => data[i] === b));
+    if (kind) out.push({ mint: str(ix.accounts[0]), user: str(ix.accounts[kind.user]), kind: kind.name });
+  }
+  return out;
+}
+
+/** Whether a parsed transaction initializes this mint (any token program) or creates it on pump.fun. */
+export function initializesMint(tx, mint) {
+  if (!tx?.transaction || tx.meta?.err) return false;
+  return pumpCreates(tx).some((c) => c.mint === mint) || instructions(tx).some((ix) => /^initializeMint/.test(ix.parsed?.type ?? '') && ix.parsed?.info?.mint === mint);
+}
+
+const ata = (owner, mint, tokenProgram) => PublicKey.findProgramAddressSync([new PublicKey(owner).toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
+
+/** `rpc` is unused since the move off Helius; it stays so the call sites keep their shape. */
+export async function xrayToken(conn, rpc, mintText) {
   let mint;
   try { mint = new PublicKey(mintText); } catch { throw new LaunchError(400, 'that is not a Solana address'); }
   const M = mint.toBase58();
-  const parsed = (await conn.getParsedAccountInfo(mint, 'confirmed')).value?.data?.parsed;
+  const mintAccount = (await conn.getParsedAccountInfo(mint, 'confirmed')).value;
+  const parsed = mintAccount?.data?.parsed;
   if (parsed?.type !== 'mint') throw new LaunchError(404, 'no token at that address');
+  const tokenProgram = new PublicKey(mintAccount.owner);
   const supply = Number(parsed.info.supply) / 10 ** parsed.info.decimals;
 
   const curvePda = bondingCurvePda(mint).toBase58();
@@ -56,23 +162,39 @@ export async function xrayToken(conn, rpc, mintText) {
   }
 
   // The launch: walk the coin's signatures back to its first one (capped for very busy coins).
-  let before, oldest = [], pages = 0, all = 0;
-  for (; pages < 25; pages++) {
-    const page = await conn.getSignaturesForAddress(mint, { before, limit: 1000 }, 'confirmed');
+  // A page that cannot be read (a node that lacks the `before` signature answers "not found") ends the walk as
+  // "did not reach the start": the launch is then unknown, never guessed from a partial list.
+  let before, oldest = [], pages = 0, all = 0, broken = false;
+  const sigPage = (opts) => conn.getSignaturesForAddress(mint, opts, 'confirmed');
+  for (; pages < SIG_PAGES; pages++) {
+    const page = await sigPage({ before, limit: 1000 }).catch(() => sigPage({ before, limit: 1000 })).catch(() => null);
+    if (!page) { broken = true; break; }
     all += page.length;
     if (page.length) { oldest = oldest.concat(page).slice(-150); before = page[page.length - 1].signature; } // pages run newest to oldest
     if (page.length < 1000) break;
   }
-  const reachedStart = pages < 25;
-  const firstSigs = [...oldest].reverse().slice(0, 100); // oldest first
-  const firstTxs = reachedStart && firstSigs.length ? (await helius('transactions', { transactions: firstSigs.map((s) => s.signature) })) ?? [] : [];
-  firstTxs.sort((a, b) => a.slot - b.slot || a.timestamp - b.timestamp);
-  const created = firstTxs[0] ?? null;
-  const launch = created ? { slot: created.slot, time: created.timestamp, signature: created.signature } : null;
+  const reachedStart = !broken && pages < SIG_PAGES;
+  // Oldest first; within a slot by position in the block when the RPC reports it. Failed transactions move no coins.
+  const firstSigs = [...oldest].reverse().map((x, k) => ({ ...x, k })).filter((x) => !x.err)
+    .sort((a, b) => a.slot - b.slot || (a.transactionIndex ?? 0) - (b.transactionIndex ?? 0) || a.k - b.k);
+  const created = reachedStart ? firstSigs[0] ?? null : null;
+  let launch = created?.blockTime ? { slot: created.slot, time: created.blockTime, signature: created.signature } : null;
+  const windowSigs = launch ? firstSigs.filter((x) => x.blockTime == null || x.blockTime - launch.time <= LAUNCH_WINDOW_S) : [];
+  // Some free RPCs keep only recent signature history and return a short list without saying so. The oldest
+  // transaction must be the one that made the mint, or the walk did not really reach the start: read it first.
+  const first = windowSigs.length ? await getTx(conn, windowSigs[0].signature).catch(() => null) : null;
+  const notGenesis = Boolean(launch && first) && !initializesMint(first, M);
+  if (notGenesis || !first) launch = null; // unreadable first transaction: launch unknown
+  const toRead = launch ? windowSigs.slice(0, LAUNCH_TXS) : [];
+  const read = toRead.length ? [first, ...(await pool(toRead.slice(1), CONCURRENCY, (x) => getTx(conn, x.signature)))] : [];
+  const missed = read.filter((t) => !t).length;
+  // More than half of the launch unreadable: report the launch as unknown rather than understate a bundle.
+  if (toRead.length && missed * 2 > toRead.length) launch = null;
+  const firstTxs = read.map(shapeTx).filter(Boolean).filter((t) => t.timestamp != null);
   const buys = [], sells = [];
   for (const t of firstTxs) {
     if (!launch || t.timestamp - launch.time > LAUNCH_WINDOW_S) break;
-    // One buy per wallet per transaction: Helius can list the same Token-2022 movement more than once.
+    // One buy per wallet per transaction (a router can move the same coins twice on the way).
     const perWallet = new Map();
     for (const x of t.tokenTransfers ?? []) if (x.mint === M && infra.has(x.fromUserAccount) && x.toUserAccount && !infra.has(x.toUserAccount)) perWallet.set(x.toUserAccount, Math.max(perWallet.get(x.toUserAccount) ?? 0, x.tokenAmount));
     for (const [wallet, amount] of perWallet) buys.push({ wallet, amount, slot: t.slot, sameBlock: t.slot === launch.slot, signature: t.signature });
@@ -92,38 +214,57 @@ export async function xrayToken(conn, rpc, mintText) {
   const holding = new Map();
   largest.forEach((a, i) => { const o = owners.value[i]?.data?.parsed?.info?.owner; if (o) holding.set(o, (holding.get(o) ?? 0) + Number(a.uiAmount ?? 0)); });
   const launchWallets = [...new Set(buys.map((b) => b.wallet))];
-  await pool(launchWallets.filter((w) => !holding.has(w)), 4, async (w) => {
-    const r = await conn.getParsedTokenAccountsByOwner(new PublicKey(w), { mint }, 'confirmed');
-    holding.set(w, r.value.reduce((s, a) => s + Number(a.account.data.parsed.info.tokenAmount.uiAmount ?? 0), 0));
-  });
+  // Launch buyers outside the top 20: read their associated token accounts, 100 to a call. A closed or missing
+  // account is a zero balance; a failed read leaves the wallet out of "hold now" (unknown, not zero).
+  const rest = launchWallets.filter((w) => !holding.has(w));
+  for (let i = 0; i < rest.length; i += 100) {
+    const chunk = rest.slice(i, i + 100);
+    const r = await conn.getMultipleParsedAccounts(chunk.map((w) => ata(w, mint, tokenProgram)), { commitment: 'confirmed' }).catch(() => null);
+    if (r) chunk.forEach((w, k) => holding.set(w, Number(r.value[k]?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0)));
+  }
 
   const wallets = [...new Set([...holding.keys(), ...launchWallets, ...(dev ? [dev] : [])])].filter((w) => !infra.has(w));
   const inSet = new Set(wallets);
 
   // Follow the money: SOL in from where, coins passed between the wallets we look at.
+  // Traced first: the dev, launch-block buyers, other launch buyers, then holders by size. Per wallet one signature
+  // page and its TXS_PER_WALLET most telling transactions: the oldest (what funded a fresh wallet) and the last one
+  // before the launch (a bundle's top-up). Any transfer in them that lands on a wallet in the set counts, not only
+  // on the traced one, so one funder paying out to many wallets in a transaction is still seen.
+  const sameBlockSet = new Set(buys.filter((b) => b.sameBlock).map((b) => b.wallet));
+  const rank = (w) => (w === dev ? 0 : sameBlockSet.has(w) ? 1 : launchWallets.includes(w) ? 2 : 3);
+  const traced = [...wallets].sort((a, b) => rank(a) - rank(b) || (holding.get(b) ?? 0) - (holding.get(a) ?? 0)).slice(0, TRACE_WALLETS);
+  const picks = await pool(traced, CONCURRENCY, async (w) => {
+    const sigs = (await conn.getSignaturesForAddress(new PublicKey(w), { limit: 100 }, 'confirmed')).filter((x) => !x.err); // newest first
+    const chosen = [sigs[sigs.length - 1]];
+    if (launch) chosen.push(sigs.find((x) => x.blockTime != null && x.blockTime < launch.time));
+    for (let k = sigs.length - 2; chosen.filter(Boolean).length < TXS_PER_WALLET && k >= 0; k--) chosen.push(sigs[k]);
+    return [...new Set(chosen.filter(Boolean).map((x) => x.signature))].slice(0, TXS_PER_WALLET);
+  });
+  const traceSigs = [...new Set(picks.flat().filter(Boolean))];
+  const traceTxs = (await pool(traceSigs, CONCURRENCY, (sig) => getTx(conn, sig))).map(shapeTx);
   const funders = new Map(); // funder -> Map(wallet -> {sol, signature})
   const edges = [];
   const seen = new Set();
-  await pool(wallets, 5, async (w) => {
-    const txs = await helius(`addresses/${w}/transactions?limit=100`);
-    for (const t of Array.isArray(txs) ? txs : []) {
-      for (const n of t.nativeTransfers ?? []) {
-        if (n.toUserAccount !== w || !n.fromUserAccount || n.fromUserAccount === w || n.amount < 5_000_000) continue;
-        const f = n.fromUserAccount;
-        if (infra.has(f) || EXCHANGES.has(f)) continue;
-        if (!funders.has(f)) funders.set(f, new Map());
-        const prev = funders.get(f).get(w);
-        funders.get(f).set(w, { sol: (prev?.sol ?? 0) + n.amount / 1e9, signature: prev?.signature ?? t.signature });
-      }
-      for (const x of t.tokenTransfers ?? []) {
-        if (x.mint !== M || !inSet.has(x.fromUserAccount) || !inSet.has(x.toUserAccount) || x.fromUserAccount === x.toUserAccount) continue;
-        const id = `${t.signature}:${x.fromUserAccount}:${x.toUserAccount}`;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        edges.push({ from: x.fromUserAccount, to: x.toUserAccount, kind: 'coins', amount: x.tokenAmount, signature: t.signature });
-      }
+  for (const t of traceTxs) {
+    if (!t) continue;
+    for (const n of t.nativeTransfers ?? []) {
+      const w = n.toUserAccount;
+      if (!inSet.has(w) || !n.fromUserAccount || n.fromUserAccount === w || n.amount < 5_000_000) continue;
+      const f = n.fromUserAccount;
+      if (infra.has(f) || EXCHANGES.has(f)) continue;
+      if (!funders.has(f)) funders.set(f, new Map());
+      const prev = funders.get(f).get(w);
+      funders.get(f).set(w, { sol: (prev?.sol ?? 0) + n.amount / 1e9, signature: prev?.signature ?? t.signature });
     }
-  });
+    for (const x of t.tokenTransfers ?? []) {
+      if (x.mint !== M || !inSet.has(x.fromUserAccount) || !inSet.has(x.toUserAccount) || x.fromUserAccount === x.toUserAccount) continue;
+      const id = `${t.signature}:${x.fromUserAccount}:${x.toUserAccount}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      edges.push({ from: x.fromUserAccount, to: x.toUserAccount, kind: 'coins', amount: x.tokenAmount, signature: t.signature });
+    }
+  }
   // A funder inside the set is a direct link; one outside that funded two or more of them is a shared source.
   const sharedFunders = [];
   for (const [f, got] of funders) {
@@ -178,7 +319,7 @@ export async function xrayToken(conn, rpc, mintText) {
     mint: M,
     dev,
     launch: launch && { ...launch, at: new Date(launch.time * 1000).toISOString() },
-    reachedStart,
+    reachedStart: reachedStart && !notGenesis,
     signaturesRead: all,
     bundle: launch ? {
       sameBlockWallets: sameBlock.length,
@@ -189,6 +330,11 @@ export async function xrayToken(conn, rpc, mintText) {
       windowSeconds: LAUNCH_WINDOW_S,
     } : null,
     poolPct,
+    // What was read: anything short of complete means links or launch buys may be missing, never that they are absent.
+    coverage: {
+      launchTxs: toRead.length, launchTxsMissed: missed, launchWindowCapped: toRead.length > 0 && windowSigs.length > toRead.length,
+      walletsTraced: traced.length - picks.filter((x) => !x).length, wallets: wallets.length, traceTxs: traceSigs.length, traceTxsMissed: traceTxs.filter((t) => !t).length,
+    },
     clusters: clusters.slice(0, 12),
     nodes,
     edges,

@@ -1,40 +1,54 @@
 import { createRequire } from 'node:module';
 import { PublicKey } from '@solana/web3.js';
 import { LaunchError, pumpGlobals } from './launch.mjs';
+import { getTx, pool, pumpCreates } from './xray.mjs';
 
 const require = createRequire(import.meta.url);
 const { PUMP_SDK, bondingCurvePda, canonicalPumpPoolPda, feeSharingConfigPda } = require('@pump-fun/pump-sdk');
 
 /**
  * A reading of one Solana token, built only from what can be read: the mint account, pump.fun's bonding curve, the
- * largest holders, the creator's earlier pump.fun launches (Helius), and DexScreener's market and profile data.
+ * largest holders, the creator's earlier pump.fun launches (read from
+ * its recent transactions over standard RPC), and DexScreener's market and profile data.
  * Every check says what it saw; anything that could not be read is reported as unknown and never counts as a pass.
  */
 const pct = (part, whole) => (whole > 0 ? (part / whole) * 100 : 0);
 const round = (x, d = 1) => Math.round(x * 10 ** d) / 10 ** d;
 const json = (url, ms = 10_000) => fetch(url, { headers: { accept: 'application/json', 'user-agent': 'gemsearch-scan' }, signal: AbortSignal.timeout(ms) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-function heliusKey(rpc) {
-  try {
-    return new URL(rpc).searchParams.get('api-key');
-  } catch {
-    return null;
-  }
-}
+const DEV_SIGS = 100; // signatures of the creator listed
+const DEV_TXS = 25; // of those, the newest successful ones read
 
-/** The creator's pump.fun launches, newest first, and how many of them left the curve. */
-async function devHistory(conn, rpc, creator, mint) {
-  const key = heliusKey(rpc);
-  if (!key) return null;
-  const txs = await json(`https://api.helius.xyz/v0/addresses/${creator}/transactions?api-key=${key}&type=CREATE&source=PUMP_FUN&limit=100`, 15_000);
-  if (!Array.isArray(txs)) return null;
-  const mints = [...new Set(txs.flatMap((t) => (t.tokenTransfers ?? []).map((x) => x.mint)).filter((m) => m && m !== mint))];
+/**
+ * The creator's pump.fun launches among its recent transactions, and how many of them left the curve.
+ * RPC calls: 1 signature page + up to DEV_TXS (25) transactions + 1 curve lookup per 100 launches => at most 27.
+ * A launch is a pump.fun create / create_v2 instruction this wallet signed as the launcher. Transactions that could
+ * not be read make the answer partial ("N+"); if none of them showed a launch, the answer is unknown, not "first".
+ * A short list that does not even hold this coin's own launch is a truncated history: unknown as well.
+ */
+export async function devHistory(conn, creator, mint) {
+  const sigs = await conn.getSignaturesForAddress(new PublicKey(creator), { limit: DEV_SIGS }, 'confirmed');
+  const ok = sigs.filter((s) => !s.err);
+  const picked = ok.slice(0, DEV_TXS);
+  const txs = await pool(picked, 3, (s) => getTx(conn, s.signature));
+  const missed = txs.filter((t) => !t).length;
+  const creates = txs.flatMap((t) => pumpCreates(t)).filter((c) => c.user === creator);
+  const mints = [...new Set(creates.map((c) => c.mint).filter((m) => m && m !== mint))];
+  if (missed && (!mints.length || missed * 2 > picked.length)) return null;
+  let capped = sigs.length >= DEV_SIGS || ok.length > picked.length || missed > 0;
+  // Some free RPCs keep only recent signature history. When every listed transaction was read, the launch of the
+  // coin being scanned must be among them; if it is not, the list was cut short: the count is a floor ("N+"), and
+  // with nothing found, "first launch" would be a guess.
+  if (!capped && !creates.some((c) => c.mint === mint)) {
+    if (!mints.length) return null;
+    capped = true;
+  }
   let graduated = 0;
   for (let i = 0; i < mints.length; i += 100) {
     const infos = await conn.getMultipleAccountsInfo(mints.slice(i, i + 100).map((m) => bondingCurvePda(new PublicKey(m))));
     for (const info of infos) if (info?.data?.length >= 49 && PUMP_SDK.decodeBondingCurveNullable(info)?.complete) graduated++;
   }
-  return { launches: mints.length, graduated, capped: txs.length >= 100 };
+  return { launches: mints.length, graduated, capped, examined: picked.length };
 }
 
 async function dexscreener(mint, symbol) {
@@ -51,6 +65,7 @@ async function dexscreener(mint, symbol) {
   return { top, profile, clones };
 }
 
+/** `rpc` is unused since the move off Helius; it stays so the call sites keep their shape. */
 export async function scanToken(conn, rpc, mintText) {
   let mint;
   try {
@@ -112,7 +127,7 @@ export async function scanToken(conn, rpc, mintText) {
     }
   }
 
-  const [dex, history] = await Promise.all([dexscreener(mint.toBase58(), meta.symbol), creator && !sharedFees ? devHistory(conn, rpc, creator, mint.toBase58()).catch(() => null) : null]);
+  const [dex, history] = await Promise.all([dexscreener(mint.toBase58(), meta.symbol), creator && !sharedFees ? devHistory(conn, creator, mint.toBase58()).catch(() => null) : null]);
   const pair = dex.top;
   const socials = [...(pair?.info?.websites ?? []).map((w) => w.url), ...(pair?.info?.socials ?? []).map((s) => s.url)].filter(Boolean);
   const ageHours = pair?.pairCreatedAt ? (Date.now() - pair.pairCreatedAt) / 3_600_000 : null;
@@ -130,7 +145,7 @@ export async function scanToken(conn, rpc, mintText) {
   if (history) {
     const rate = history.launches ? history.graduated / history.launches : null;
     const many = history.launches >= 10;
-    add('history', 'Dev history', many && rate < 0.05 ? 'warn' : 'pass', history.launches ? `${history.launches}${history.capped ? '+' : ''} earlier pump.fun launch${history.launches === 1 ? '' : 'es'}, ${history.graduated} graduated` : 'First pump.fun launch from this wallet', many && rate < 0.05 ? 10 : 0);
+    add('history', 'Dev history', many && rate < 0.05 ? 'warn' : 'pass', history.launches ? `${history.launches}${history.capped ? '+' : ''} earlier pump.fun launch${history.launches === 1 ? '' : 'es'}, ${history.graduated} graduated` : history.capped ? `No earlier pump.fun launch in the wallet's last ${history.examined} transactions` : 'First pump.fun launch from this wallet', many && rate < 0.05 ? 10 : 0);
   } else add('history', 'Dev history', 'unknown', creator ? 'Could not read earlier launches' : 'No pump.fun creator on record');
   if (curve && !curve.complete) add('stage', 'Stage', 'info', `On the pump.fun curve, ${progress ?? '?'}% to graduation`);
   else if (pair) {
