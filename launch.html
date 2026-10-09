@@ -64,6 +64,20 @@ header p{color:var(--muted);font-size:18px;max-width:620px;margin:0 auto}
 .adv .col i{display:block;margin-top:6px;font-style:normal;color:var(--dim)}
 .adv .ft{font-size:12px;color:var(--dim);margin-top:10px}
 @media (max-width:620px){.adv .cols{grid-template-columns:1fr}.adv .use{margin-left:0}}
+.hunt{max-width:1080px;margin:26px auto 0;text-align:left}
+.hunt .hh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.hunt .hh b{font-size:20px}.hunt .hh span{font:600 12px "JetBrains Mono",monospace;color:var(--dim)}
+.nar{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.nc{padding:16px;border-radius:18px;background:linear-gradient(180deg,rgba(19,15,56,.92),rgba(12,9,40,.92));border:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.nc .t{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.nc .t b{font-size:16px;line-height:1.25}
+.nc .heat{font:700 11px "JetBrains Mono",monospace;padding:4px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.nc .heat.hot{border-color:#ff5e8e;color:#ffc2d4}.nc .heat.rising{border-color:#ffe81f;color:#fff6b8}.nc .heat.early{border-color:#4dff6a;color:#dfffe5}
+.nc p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.45}
+.nc .m{font:600 12px "JetBrains Mono",monospace;color:#d9d4ff}.nc .m.sat{color:#ffb4c8}.nc .m.fresh{color:var(--green)}
+.nc .row{display:flex;gap:8px;align-items:center;margin-top:auto;flex-wrap:wrap}
+.nc .row a{font-size:12.5px;color:var(--cyan)}
+.nc button{margin-left:auto;padding:8px 13px;border-radius:999px;border:0;font-weight:700;cursor:pointer;background:linear-gradient(90deg,#ff2e7e,#ff8a1f,#ffe81f,#4dff6a,#1fd2ff,#5b6bff,#b84dff);color:#0a0820;font-size:13px}
+@media (max-width:900px){.nar{grid-template-columns:1fr 1fr}}@media (max-width:620px){.nar{grid-template-columns:1fr}}
 
 .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:22px;align-items:start;padding-bottom:40px}
 @media (max-width:900px){.grid{grid-template-columns:1fr}}
@@ -187,6 +201,10 @@ footer p{margin:0 0 8px;max-width:820px}
     <div class="top"><div><div class="k">🕷️ SPIDER'S PICK RIGHT NOW</div><div class="pk" id="advpick"></div><div class="hl" id="advhl"></div><div class="why" id="advwhy"></div></div><button class="use" id="advuse" type="button">Use it</button></div>
     <div class="cols"><div class="col" id="advsol"></div><div class="col" id="advrh"></div></div>
     <div class="ft" id="advft"></div>
+  </div>
+  <div class="hunt" id="hunt" hidden>
+    <div class="hh"><b>🕸️ Narratives on X right now</b><span id="huntmeta"></span></div>
+    <div class="nar" id="nar"></div>
   </div>
 </header>
 
@@ -414,6 +432,29 @@ async function loadAdvice() {
 function advSync() { if (!advPick) return; const same = advPick === net; $('advuse').disabled = same; $('advuse').textContent = same ? 'Selected' : 'Use it'; }
 $('advuse').addEventListener('click', () => { if (advPick && !busy) setNet(advPick); });
 loadAdvice();
+
+// --- Narrative Hunter: what started moving on X, with how many coins already took the ticker today ---
+async function loadHunt() {
+  try {
+    const r = await fetch(API + '/v1/narratives'); if (!r.ok) return;
+    const d = await r.json(); const list = d.narratives ?? []; if (!list.length) return;
+    const HEAT = { hot: '🔥 HOT', rising: '📈 RISING', early: '🌱 EARLY' };
+    $('nar').innerHTML = list.slice(0, 6).map((n, i) => {
+      const c = n.clones24h;
+      const m = c == null ? '' : c === 0 ? '<div class="m fresh">no coin with this ticker on pump.fun today</div>' : `<div class="m${c >= 5 ? ' sat' : ''}">${c} coin${c === 1 ? '' : 's'} with $${advEsc(n.ticker)} on pump.fun today</div>`;
+      return `<div class="nc"><div class="t"><b>${advEsc(n.title)}</b><span class="heat ${advEsc(n.heat)}">${HEAT[n.heat] ?? ''}</span></div><p>${advEsc(n.why)}</p><div class="m">${advEsc(n.name)} · $${advEsc(n.ticker)}</div>${m}<div class="row"><a href="${advEsc(n.posts[0])}" target="_blank" rel="noopener">source post ↗</a><button type="button" data-i="${i}">Launch on this</button></div></div>`;
+    }).join('');
+    $('nar').onclick = (e) => {
+      const i = e.target.dataset?.i; if (i === undefined || busy) return;
+      const n = list[Number(i)];
+      for (const [id, v] of [['name', n.name], ['symbol', n.ticker], ['desc', n.why], ['post', n.posts[0] ?? '']]) { const el = $(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }
+      $('name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    $('huntmeta').textContent = `found by Grok on X ${Math.max(1, Math.round((Date.now() - d.at) / 60000))} min ago · a lead, not a promise`;
+    $('hunt').hidden = false;
+  } catch {}
+}
+loadHunt();
 
 function setNet(n) {
   net = n; wallet = null; provider = null;
