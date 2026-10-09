@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { cleanPosts, createNarratives, tickerOf } from '../narratives.mjs';
+import { cleanPosts, createNarratives, tickerOf, verifyPost } from '../narratives.mjs';
 
 test('tickers are cleaned to A-Z/0-9', () => {
   assert.equal(tickerOf('$wif hat!'), 'WIFHAT');
@@ -22,10 +22,18 @@ test('a hunt keeps narratives with posts, dedupes tickers and counts clones from
     { title: 'Same ticker', why: 'dup', name: 'BDOG two', ticker: 'BDOG', heat: 'early', kind: 'meme', posts: ['https://x.com/a/status/111111111'] },
     { title: 'No sources', why: 'x', name: 'Ghost', ticker: 'GHOST', heat: 'hot', kind: 'meme', posts: [] },
   ] };
-  const fetchFn = async () => new Response(JSON.stringify({ usage: { cost_in_usd_ticks: 2e8 }, output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(body), annotations: [{ url: 'https://x.com/a/status/111111111' }] }] }] }), { status: 200 });
+  const fetchFn = async (u) => u.includes('oembed') ? new Response(JSON.stringify({ author_url: 'https://twitter.com/realauthor' }), { status: 200 }) : new Response(JSON.stringify({ usage: { cost_in_usd_ticks: 2e8 }, output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(body), annotations: [{ url: 'https://x.com/a/status/111111111' }] }] }] }), { status: 200 });
   const db = { prepare: () => ({ get: (t, ticker) => ({ n: ticker === 'BDOG' ? 7 : 0 }) }) };
   const n = createNarratives({ key: 'k', db, dataDir: mkdtempSync(join(tmpdir(), 'nar-')), fetchFn, logger: { error() {} } });
   const v = await n.get();
-  assert.deepEqual(v.narratives.map((x) => [x.ticker, x.clones24h, x.posts.length]), [['BDOG', 7, 1]]);
+  assert.deepEqual(v.narratives.map((x) => [x.ticker, x.clones24h, x.posts]), [['BDOG', 7, ['https://x.com/realauthor/status/111111111']]]);
   assert.equal(v.usd, 0.02);
+});
+
+test('oEmbed decides whether a post exists', async () => {
+  const f = (status, body = {}) => async () => new Response(JSON.stringify(body), { status });
+  assert.equal(await verifyPost('https://x.com/a/status/123456789', f(200, { author_url: 'https://twitter.com/Bob' })), 'https://x.com/Bob/status/123456789');
+  assert.equal(await verifyPost('https://x.com/a/status/123456789', f(404)), null);
+  assert.equal(await verifyPost('https://x.com/a/status/123456789', f(503)), undefined);
+  assert.equal(await verifyPost('https://x.com/a/status/123456789', async () => { throw new Error('down'); }), undefined);
 });

@@ -38,17 +38,32 @@ const POST_RE = /^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\
 const idOf = (u) => String(u ?? '').match(POST_RE)?.[2] ?? null;
 
 /**
- * Keeps only post links Grok cited, matched by status id (its citations look like x.com/i/status/<id>), as
- * https://x.com/<user>/status/<id> links.
+ * Post links Grok cited, matched by status id (its citations look like x.com/i/status/<id>), as
+ * https://x.com/<user>/status/<id> links. With `all`, uncited links are kept too (to be checked another way).
  */
-export function cleanPosts(posts, cites) {
+export function cleanPosts(posts, cites, { all = false } = {}) {
   const cited = new Set((cites ?? []).map(idOf).filter(Boolean));
   const out = new Map();
   for (const u of posts ?? []) {
     const m = String(u).match(POST_RE);
-    if (m && (cited.size === 0 || cited.has(m[2])) && !out.has(m[2])) out.set(m[2], `https://x.com/${m[1]}/status/${m[2]}`);
+    if (m && (all || cited.size === 0 || cited.has(m[2])) && !out.has(m[2])) out.set(m[2], `https://x.com/${m[1]}/status/${m[2]}`);
   }
   return [...out.values()].slice(0, 3);
+}
+
+/**
+ * Checks a post exists with X's public oEmbed (free, no key): 200 for a real post, 404 for an invented one. Returns
+ * the link with the real author, null when the post does not exist, or undefined when oEmbed could not be reached.
+ */
+export async function verifyPost(url, fetchFn = fetch) {
+  const id = idOf(url);
+  if (!id) return null;
+  const res = await fetchFn(`https://publish.twitter.com/oembed?omit_script=1&url=${encodeURIComponent(url.replace('https://x.com/', 'https://twitter.com/'))}`, { redirect: 'follow', signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  if (!res) return undefined;
+  if (res.status === 404) return null;
+  if (!res.ok) return undefined;
+  const author = String((await res.json().catch(() => ({}))).author_url ?? '').match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/)?.[1];
+  return author ? `https://x.com/${author}/status/${id}` : undefined;
 }
 
 export function createNarratives({ key, db = null, dataDir, every = 3 * 3_600_000, dailyUsd = 1.5, now = () => Date.now(), fetchFn = fetch, logger = console }) {
@@ -79,11 +94,26 @@ export function createNarratives({ key, db = null, dataDir, every = 3 * 3_600_00
     let parsed;
     try { parsed = JSON.parse(msg?.text ?? ''); } catch { logger.error('[narratives] bad json'); return st.value; }
     const cites = (msg?.annotations ?? []).map((a) => a.url).filter(Boolean);
-    const seen = new Set();
-    const list = (parsed.narratives ?? []).map((n) => {
+    // Every post link is checked with oEmbed: invented ones drop out, real ones get their real author. Where oEmbed
+    // cannot be reached, only links Grok cited from its search survive.
+    const citedIds = new Set(cites.map(idOf).filter(Boolean));
+    const checkPosts = async (posts) => {
+      const out = [];
+      for (const u of cleanPosts(posts, cites, { all: true })) {
+        const v = await verifyPost(u, fetchFn);
+        if (v) out.push(v); else if (v === undefined && citedIds.has(idOf(u))) out.push(u);
+      }
+      return out;
+    };
+    const seen = new Set(), list = [];
+    for (const n of parsed.narratives ?? []) {
       const ticker = tickerOf(n.ticker) || tickerOf(n.name);
-      return { title: String(n.title).slice(0, 60), why: String(n.why).slice(0, 240), name: String(n.name).slice(0, 32), ticker, heat: n.heat, kind: n.kind, posts: cleanPosts(n.posts, cites), clones24h: clones(ticker) };
-    }).filter((n) => n.ticker && n.posts.length && !seen.has(n.ticker) && seen.add(n.ticker));
+      if (!ticker || seen.has(ticker)) continue;
+      const posts = await checkPosts(n.posts);
+      if (!posts.length) continue;
+      seen.add(ticker);
+      list.push({ title: String(n.title).slice(0, 60), why: String(n.why).slice(0, 240), name: String(n.name).slice(0, 32), ticker, heat: n.heat, kind: n.kind, posts, clones24h: clones(ticker) });
+    }
     st.value = { at: now(), narratives: list, usd: Math.round(usd * 1000) / 1000 };
     writeFileSync(file, JSON.stringify(st));
     return st.value;
